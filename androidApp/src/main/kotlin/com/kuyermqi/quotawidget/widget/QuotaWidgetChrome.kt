@@ -55,7 +55,7 @@ import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toRefreshPhase
 import com.kuyermqi.quotawidget.worker.BalanceRefreshWorker
 
 /** App Context from [provideGlance], not Glance [androidx.glance.LocalContext]. */
-private val LocalWidgetAndroidContext = staticCompositionLocalOf<Context> {
+internal val LocalWidgetAndroidContext = staticCompositionLocalOf<Context> {
     error("LocalWidgetAndroidContext not provided")
 }
 
@@ -227,6 +227,7 @@ internal fun RefreshButton(
     hitSize: Dp = 28.dp,
     iconSize: Dp = 24.dp,
     spinnerSize: Dp = 22.dp,
+    scale: Float = 1f,
 ) {
     val refresh = actionRunCallback<RefreshBalanceAction>(
         parameters = actionParametersOf(
@@ -270,6 +271,7 @@ internal fun WidgetHeader(
     platformTitle: String,
     refreshPhase: RefreshIconPhase,
     openApp: Action,
+    scale: Float = 1f,
 ) {
     Row(
         modifier = GlanceModifier.fillMaxWidth(),
@@ -279,13 +281,19 @@ internal fun WidgetHeader(
             text = platformTitle,
             style = TextStyle(
                 color = GlanceTheme.colors.onSurface,
-                fontSize = 15.sp,
+                fontSize = 15.sp * scale,
                 fontWeight = FontWeight.Medium,
             ),
             modifier = GlanceModifier
                 .defaultWeight()
                 .clickableNoRipple(openApp),
         )
-        RefreshButton(platformId = platformId, phase = refreshPhase)
+        RefreshButton(
+            platformId = platformId,
+            phase = refreshPhase,
+            hitSize = 28.dp * scale,
+            iconSize = 24.dp * scale,
+            spinnerSize = 22.dp * scale,
+        )
     }
 }

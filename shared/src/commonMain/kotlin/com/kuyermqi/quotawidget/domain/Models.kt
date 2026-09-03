@@ -31,6 +31,8 @@ data class AppSettings(
     val customSeedColorArgb: Int = DEFAULT_CUSTOM_SEED_COLOR_ARGB,
     val refreshIntervalMinutes: Int = DEFAULT_REFRESH_INTERVAL_MINUTES,
     val checkForUpdatesOnLaunch: Boolean = true,
+    /** Platforms hidden from home and the widget picker; empty = all visible. */
+    val hiddenPlatforms: Set<String> = emptySet(),
 ) {
     init {
         require(refreshIntervalMinutes in ALLOWED_REFRESH_INTERVAL_MINUTES) {
@@ -73,6 +75,8 @@ enum class QuotaWindowKind {
     BALANCE,
     /** Single NewAPI token quota pool. */
     TOKEN,
+    /** NewAPI subscription plan pool (amount_total / amount_used). */
+    SUBSCRIPTION,
 }
 
 /** Which usage window a percent widget displays (OpenCode Go, Codex, NewAPI, …). */
@@ -81,6 +85,7 @@ enum class UsageWindowKind {
     WEEKLY,
     MONTHLY,
     TOKEN,
+    SUBSCRIPTION,
     ;
 
     fun toQuotaWindowKind(): QuotaWindowKind = when (this) {
@@ -88,6 +93,7 @@ enum class UsageWindowKind {
         WEEKLY -> QuotaWindowKind.WEEKLY
         MONTHLY -> QuotaWindowKind.MONTHLY
         TOKEN -> QuotaWindowKind.TOKEN
+        SUBSCRIPTION -> QuotaWindowKind.SUBSCRIPTION
     }
 
     companion object {
@@ -229,6 +235,66 @@ data class QuotaSnapshot(
     val quotaOverspent: Boolean = false,
 )
 
+/** Trailing window for NewAPI admin realtime rpm/tpm queries. */
+const val NEW_API_ADMIN_REALTIME_WINDOW_SEC = 300L
+
+/**
+ * NewAPI admin dashboard aggregates: platform-wide totals over the last day/month
+ * (admin access token required), plus token series for in-app curve charts.
+ * [daySeries] holds 24 hourly totals (oldest first); [monthSeries] holds 30
+ * daily totals (oldest first).
+ */
+data class NewApiAdminStats(
+    val tokensDay: Long = 0L,
+    val tokensMonth: Long = 0L,
+    val requestsDay: Long = 0L,
+    val requestsMonth: Long = 0L,
+    /** Realtime load from /api/log/stat over a short trailing window. */
+    val rpm: Long = 0L,
+    val tpm: Long = 0L,
+    val daySeries: List<Long> = emptyList(),
+    val monthSeries: List<Long> = emptyList(),
+    val updatedAtEpochMs: Long = 0L,
+)
+
+private const val MINUTES_PER_DAY = 24.0 * 60.0
+
+fun NewApiAdminStats.averageRpmDay(): Double = requestsDay / MINUTES_PER_DAY
+
+fun NewApiAdminStats.averageTpmDay(): Double = tokensDay / MINUTES_PER_DAY
+
+fun formatNewApiAdminRate(value: Double): String {
+    val hundredths = kotlin.math.round(value.coerceAtLeast(0.0) * 100.0).toLong()
+    val whole = hundredths / 100L
+    val fraction = hundredths % 100L
+    return "${formatGroupedWhole(whole)}.${fraction.toString().padStart(2, '0')}"
+}
+
+fun formatRequestCount(value: Long): String = formatGroupedWhole(value.coerceAtLeast(0L))
+
+private fun formatGroupedWhole(value: Long): String {
+    val digits = value.toString()
+    val firstGroupSize = digits.length % 3
+    return buildString {
+        digits.forEachIndexed { index, char ->
+            if (index > 0 && (index - firstGroupSize).mod(3) == 0) append(',')
+            append(char)
+        }
+    }
+}
+
+/** Compact token count: 1234 → "1234", 29_086_040 → "29.1M", 3.46e9 → "3.5B". */
+fun formatTokenCount(tokens: Long): String {
+    val abs = kotlin.math.abs(tokens)
+    val (scaled, suffix) = when {
+        abs >= 1_000_000_000L -> tokens / 1_000_000_000.0 to "B"
+        abs >= 1_000_000L -> tokens / 1_000_000.0 to "M"
+        abs >= 10_000L -> tokens / 1_000.0 to "K"
+        else -> return tokens.toString()
+    }
+    return formatOneDecimal(scaled) + suffix
+}
+
 sealed interface WidgetDisplayState {
     data object NotConfigured : WidgetDisplayState
     data object Loading : WidgetDisplayState
@@ -276,9 +342,6 @@ fun formatBalance(currency: CurrencyPreference, amount: String): String {
 
 /** Used-percent threshold for warning-colored progress (settings UI and widgets). */
 const val USAGE_NEAR_LIMIT_PERCENT = 90.0
-
-/** NewAPI unlimited remaining balance / usage title. */
-const val NEW_API_UNLIMITED_REMAINING_DISPLAY = "∞"
 
 /** Remaining-percent threshold equivalent to [USAGE_NEAR_LIMIT_PERCENT] used. */
 const val REMAINING_NEAR_LIMIT_PERCENT = 100.0 - USAGE_NEAR_LIMIT_PERCENT
@@ -342,87 +405,6 @@ fun formatUsageDisplayPercent(
     usedPercent: Double,
     mode: UsageDisplayMode,
 ): String = formatUsagePercent(displayUsagePercent(usedPercent, mode))
-
-/**
- * NewAPI balance widgets: used mode shows currency; remaining mode shows currency
- * or [NEW_API_UNLIMITED_REMAINING_DISPLAY] when unlimited.
- */
-fun formatNewApiBalanceTitle(
-    snapshot: QuotaSnapshot,
-    mode: UsageDisplayMode,
-): String? = when (mode) {
-    UsageDisplayMode.USED ->
-        snapshot.usedDisplay.takeIf { it.isNotBlank() }
-    UsageDisplayMode.REMAINING ->
-        when {
-            snapshot.unlimitedQuota -> NEW_API_UNLIMITED_REMAINING_DISPLAY
-            else -> snapshot.primaryDisplay.takeIf { it.isNotBlank() }
-        }
-}
-
-/**
- * NewAPI usage widget title: unlimited keys use amounts (remaining → ∞);
- * limited keys use percent like OpenCode / Codex.
- * Empty limited pools show 0% for both used and remaining modes.
- * Overspend may show used > 100% (progress fill still caps at 100%).
- */
-fun formatNewApiUsageWidgetTitle(
-    snapshot: QuotaSnapshot,
-    mode: UsageDisplayMode,
-): String? {
-    if (snapshot.unlimitedQuota) {
-        return formatNewApiBalanceTitle(snapshot, mode)
-    }
-    if (snapshot.emptyLimitedQuota) {
-        return formatUsagePercent(0.0)
-    }
-    val used = snapshot.windows
-        .find { it.kind == QuotaWindowKind.TOKEN }
-        ?.usedPercent
-        ?: return null
-    return when (mode) {
-        // Allow >100% when overspent; do not coerce like [formatUsageDisplayPercent].
-        UsageDisplayMode.USED -> formatUsagePercent(used.coerceAtLeast(0.0))
-        UsageDisplayMode.REMAINING -> formatRemainingUsagePercent(used)
-    }
-}
-
-/** Footer line for NewAPI widgets: expired warning + updated-at text. */
-fun formatNewApiWidgetFooter(
-    snapshot: QuotaSnapshot,
-    expiredLabel: String,
-    updatedAtText: String,
-): String =
-    if (snapshot.tokenExpired) {
-        "$expiredLabel · $updatedAtText"
-    } else {
-        updatedAtText
-    }
-
-/** Used-percent value passed into progress tracks for NewAPI (empty pool → 0 for both modes). */
-fun newApiUsageProgressUsedPercent(
-    snapshot: QuotaSnapshot,
-    mode: UsageDisplayMode,
-): Double? {
-    if (snapshot.unlimitedQuota) return null
-    if (snapshot.emptyLimitedQuota) return 0.0
-    return snapshot.windows
-        .find { it.kind == QuotaWindowKind.TOKEN }
-        ?.usedPercent
-}
-
-/** Display mode for NewAPI progress fill; empty pool forces USED so fill stays 0%. */
-fun newApiUsageProgressDisplayMode(
-    snapshot: QuotaSnapshot,
-    mode: UsageDisplayMode,
-): UsageDisplayMode =
-    if (snapshot.emptyLimitedQuota) UsageDisplayMode.USED else mode
-
-fun newApiUsageWidgetShowsProgress(snapshot: QuotaSnapshot): Boolean =
-    !snapshot.unlimitedQuota && (
-        snapshot.emptyLimitedQuota ||
-            snapshot.windows.any { it.kind == QuotaWindowKind.TOKEN && it.usedPercent != null }
-        )
 
 fun formatUsageRemainingForWindow(
     windows: List<QuotaWindow>,

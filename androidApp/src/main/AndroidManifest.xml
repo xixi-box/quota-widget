@@ -134,39 +134,87 @@
         </receiver>
 
         <receiver
-            android:name=".widget.NewApiBalanceWidgetReceiver"
+            android:name=".widget.NewApiAdminWidgetReceiver"
             android:exported="true"
-            android:label="@string/widget_new_api_balance_label">
+            android:label="@string/widget_new_api_admin_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/new_api_balance_widget_info" />
+                android:resource="@xml/new_api_admin_widget_info" />
         </receiver>
 
         <receiver
-            android:name=".widget.NewApiBalanceCompactWidgetReceiver"
+            android:name=".widget.ZhipuWidgetReceiver"
             android:exported="true"
-            android:label="@string/widget_new_api_balance_compact_label">
+            android:label="@string/widget_zhipu_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/new_api_balance_widget_compact_info" />
+                android:resource="@xml/zhipu_widget_info" />
         </receiver>
 
         <receiver
-            android:name=".widget.NewApiUsageWidgetReceiver"
+            android:name=".widget.ZhipuCompactWidgetReceiver"
             android:exported="true"
-            android:label="@string/widget_new_api_usage_label">
+            android:label="@string/widget_zhipu_compact_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/new_api_usage_widget_info" />
+                android:resource="@xml/zhipu_widget_compact_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.ZhipuOverviewWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_zhipu_overview_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/zhipu_widget_overview_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.NewApiSubscriptionWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_newapi_sub_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/newapi_sub_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.NewApiSubscriptionCompactWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_newapi_sub_compact_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/newapi_sub_widget_compact_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.CombinedOverviewWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_combined_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/combined_widget_info" />
         </receiver>
 
         <receiver

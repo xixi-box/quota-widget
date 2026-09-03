@@ -286,6 +286,7 @@ private fun usageWindowKindLabelRes(kind: UsageWindowKind): Int = when (kind) {
     UsageWindowKind.WEEKLY -> R.string.usage_window_weekly
     UsageWindowKind.MONTHLY -> R.string.usage_window_monthly
     UsageWindowKind.TOKEN -> R.string.usage_window_token
+    UsageWindowKind.SUBSCRIPTION -> R.string.usage_window_subscription
 }
 
 /** Matches overview widget comfortable density (12.sp inside 28.dp bar). */

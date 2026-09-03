@@ -1,6 +1,7 @@
 package com.kuyermqi.quotawidget.settings
 
 import com.kuyermqi.quotawidget.domain.AppSettings
+import com.kuyermqi.quotawidget.domain.NewApiAdminStats
 import com.kuyermqi.quotawidget.domain.QuotaSnapshot
 import com.kuyermqi.quotawidget.domain.RefreshIconPhase
 import com.kuyermqi.quotawidget.domain.WidgetDisplayState
@@ -14,12 +15,14 @@ class FakePlatformSettingsRepository(
     openCode: OpenCodeGoSettings = OpenCodeGoSettings(),
     codex: CodexSettings = CodexSettings(),
     newApi: NewApiSettings = NewApiSettings(),
+    zhipu: ZhipuSettings = ZhipuSettings(),
     widgetStates: Map<String, WidgetDisplayState> = emptyMap(),
 ) : PlatformSettingsRepository {
     private val deepSeekFlow = MutableStateFlow(deepSeek)
     private val openCodeFlow = MutableStateFlow(openCode)
     private val codexFlow = MutableStateFlow(codex)
     private val newApiFlow = MutableStateFlow(newApi)
+    private val zhipuFlow = MutableStateFlow(zhipu)
     private val widgetFlows = mutableMapOf(
         PlatformIds.DEEPSEEK to MutableStateFlow(
             widgetStates[PlatformIds.DEEPSEEK] ?: WidgetDisplayState.NotConfigured,
@@ -32,6 +35,9 @@ class FakePlatformSettingsRepository(
         ),
         PlatformIds.NEW_API to MutableStateFlow(
             widgetStates[PlatformIds.NEW_API] ?: WidgetDisplayState.NotConfigured,
+        ),
+        PlatformIds.ZHIPU to MutableStateFlow(
+            widgetStates[PlatformIds.ZHIPU] ?: WidgetDisplayState.NotConfigured,
         ),
     )
     private val refreshPhases = mutableMapOf<String, RefreshIconPhase>()
@@ -99,13 +105,62 @@ class FakePlatformSettingsRepository(
     }
 
     override suspend fun clearNewApiSettings() {
-        val current = newApiFlow.value
-        newApiFlow.value = NewApiSettings(
-            quotaPerUsd = current.quotaPerUsd,
+        newApiFlow.value = NewApiSettings()
+        widgetFlow(PlatformIds.NEW_API).value = WidgetDisplayState.NotConfigured
+    }
+
+    override fun observeZhipuSettings(): Flow<ZhipuSettings> = zhipuFlow.asStateFlow()
+    override suspend fun getZhipuSettings(): ZhipuSettings = zhipuFlow.value
+    override suspend fun saveZhipuSettings(settings: ZhipuSettings) {
+        zhipuFlow.value = settings
+        if (!settings.isConfigured) {
+            widgetFlow(PlatformIds.ZHIPU).value = WidgetDisplayState.NotConfigured
+        }
+    }
+
+    override suspend fun clearZhipuSettings() {
+        val current = zhipuFlow.value
+        zhipuFlow.value = ZhipuSettings(
+            widgetWindowKind = current.widgetWindowKind,
             usageDisplayMode = current.usageDisplayMode,
             usageProgressStyle = current.usageProgressStyle,
         )
-        widgetFlow(PlatformIds.NEW_API).value = WidgetDisplayState.NotConfigured
+        widgetFlow(PlatformIds.ZHIPU).value = WidgetDisplayState.NotConfigured
+    }
+
+    private val newApiAdminStatsFlow = MutableStateFlow<NewApiAdminStats?>(null)
+
+    override suspend fun saveNewApiAdminStats(stats: NewApiAdminStats) {
+        newApiAdminStatsFlow.value = stats
+    }
+
+    override suspend fun getNewApiAdminStats(): NewApiAdminStats? = newApiAdminStatsFlow.value
+
+    override fun observeNewApiAdminStats(): Flow<NewApiAdminStats?> =
+        newApiAdminStatsFlow.asStateFlow()
+
+    private val newApiSubscriptionFlow = MutableStateFlow(NewApiSubscriptionSettings())
+
+    override fun observeNewApiSubscriptionSettings(): Flow<NewApiSubscriptionSettings> =
+        newApiSubscriptionFlow.asStateFlow()
+
+    override suspend fun getNewApiSubscriptionSettings(): NewApiSubscriptionSettings =
+        newApiSubscriptionFlow.value
+
+    override suspend fun saveNewApiSubscriptionSettings(settings: NewApiSubscriptionSettings) {
+        newApiSubscriptionFlow.value = settings
+        if (!settings.isConfigured) {
+            widgetFlow(PlatformIds.NEW_API_SUBSCRIPTION).value = WidgetDisplayState.NotConfigured
+        }
+    }
+
+    override suspend fun clearNewApiSubscriptionSettings() {
+        val current = newApiSubscriptionFlow.value
+        newApiSubscriptionFlow.value = NewApiSubscriptionSettings(
+            usageDisplayMode = current.usageDisplayMode,
+            usageProgressStyle = current.usageProgressStyle,
+        )
+        widgetFlow(PlatformIds.NEW_API_SUBSCRIPTION).value = WidgetDisplayState.NotConfigured
     }
 
     override fun observeWidgetState(platformId: String): Flow<WidgetDisplayState> =

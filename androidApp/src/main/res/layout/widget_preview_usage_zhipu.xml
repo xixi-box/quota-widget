@@ -22,7 +22,7 @@
             android:layout_weight="1"
             android:ellipsize="end"
             android:maxLines="1"
-            android:text="@string/platform_name_new_api"
+            android:text="@string/platform_name_zhipu"
             android:textColor="#191C1A"
             android:textSize="15sp"
             android:textStyle="bold" />
@@ -46,15 +46,24 @@
         android:layout_height="wrap_content"
         android:ellipsize="end"
         android:maxLines="1"
-        android:text="@string/widget_preview_sample_balance"
+        android:text="@string/widget_preview_sample_percent"
         android:textColor="#191C1A"
         android:textSize="32sp"
         android:textStyle="bold" />
 
+    <ProgressBar
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="6dp"
+        android:layout_marginTop="8dp"
+        android:max="100"
+        android:progress="42"
+        android:progressDrawable="@drawable/widget_preview_progress" />
+
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
+        android:layout_marginTop="10dp"
         android:ellipsize="end"
         android:maxLines="1"
         android:text="@string/widget_preview_sample_updated"

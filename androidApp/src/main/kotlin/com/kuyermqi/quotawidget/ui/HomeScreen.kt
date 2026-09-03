@@ -35,7 +35,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kuyermqi.quotawidget.R
+import com.kuyermqi.quotawidget.domain.AppSettings
 import com.kuyermqi.quotawidget.domain.WidgetDisplayState
 import com.kuyermqi.quotawidget.platform.PlatformIds
 import com.kuyermqi.quotawidget.platform.PlatformRegistry
@@ -50,12 +52,18 @@ import com.kuyermqi.quotawidget.ui.home.DeepSeekHomeContent
 import com.kuyermqi.quotawidget.ui.home.DeepSeekHomeEffects
 import com.kuyermqi.quotawidget.ui.home.NewApiHomeContent
 import com.kuyermqi.quotawidget.ui.home.NewApiHomeEffects
+import com.kuyermqi.quotawidget.ui.home.NewApiSubscriptionHomeContent
+import com.kuyermqi.quotawidget.ui.home.NewApiSubscriptionHomeEffects
 import com.kuyermqi.quotawidget.ui.home.OpenCodeGoHomeContent
 import com.kuyermqi.quotawidget.ui.home.OpenCodeGoHomeEffects
+import com.kuyermqi.quotawidget.ui.home.ZhipuHomeContent
+import com.kuyermqi.quotawidget.ui.home.ZhipuHomeEffects
 import com.kuyermqi.quotawidget.ui.home.rememberCodexHomeState
 import com.kuyermqi.quotawidget.ui.home.rememberDeepSeekHomeState
 import com.kuyermqi.quotawidget.ui.home.rememberNewApiHomeState
+import com.kuyermqi.quotawidget.ui.home.rememberNewApiSubscriptionHomeState
 import com.kuyermqi.quotawidget.ui.home.rememberOpenCodeGoHomeState
+import com.kuyermqi.quotawidget.ui.home.rememberZhipuHomeState
 import com.kuyermqi.quotawidget.webview.InAppWebViewActivity
 import com.kuyermqi.quotawidget.widget.WidgetGlanceState
 import kotlinx.coroutines.launch
@@ -101,11 +109,21 @@ fun HomeScreen(
     val openCode = rememberOpenCodeGoHomeState(settingsRepository)
     val codex = rememberCodexHomeState(settingsRepository)
     val newApi = rememberNewApiHomeState(settingsRepository)
+    val zhipu = rememberZhipuHomeState(settingsRepository)
+    val newApiSubscription = rememberNewApiSubscriptionHomeState(settingsRepository)
 
     val deepSeekWidgetState = DeepSeekHomeEffects(deepSeek)
     val openCodeBindings = OpenCodeGoHomeEffects(openCode, onRefreshPlatform)
     val codexBindings = CodexHomeEffects(codex, onRefreshPlatform)
-    val newApiWidgetState = NewApiHomeEffects(newApi)
+    val zhipuWidgetState = ZhipuHomeEffects(zhipu)
+    NewApiHomeEffects(newApi)
+    val newApiSubscriptionWidgetState = NewApiSubscriptionHomeEffects(newApiSubscription)
+
+    val appSettings by settingsRepository.observeAppSettings()
+        .collectAsStateWithLifecycle(initialValue = AppSettings())
+    val visiblePlatforms = remember(appSettings.hiddenPlatforms) {
+        PlatformRegistry.platforms.filter { it.id !in appSettings.hiddenPlatforms }
+    }
 
     val hasVisibleTips = tipLoaded && (
         showBatteryOptimizationTip || showOemBackgroundTip || showPlatformTip
@@ -114,7 +132,7 @@ fun HomeScreen(
     LaunchedEffect(focusPlatformRequest, tipLoaded, hasVisibleTips) {
         val request = focusPlatformRequest ?: return@LaunchedEffect
         if (!tipLoaded) return@LaunchedEffect
-        val platformIndex = PlatformRegistry.platforms.indexOfFirst { it.id == request.platformId }
+        val platformIndex = visiblePlatforms.indexOfFirst { it.id == request.platformId }
         if (platformIndex < 0) return@LaunchedEffect
 
         expandedPlatformId = request.platformId
@@ -154,9 +172,16 @@ fun HomeScreen(
             loadingMsg = msgLoadingBalance,
             reauthMsg = msgNeedsReauth,
         )
-        PlatformIds.NEW_API -> newApi.summaryLabel(
+        PlatformIds.NEW_API -> null
+        PlatformIds.ZHIPU -> zhipu.summaryLabel(
             resources = resources,
-            widgetState = newApiWidgetState,
+            widgetState = zhipuWidgetState,
+            loadingMsg = msgLoadingBalance,
+            reauthMsg = msgNeedsReauth,
+        )
+        PlatformIds.NEW_API_SUBSCRIPTION -> newApiSubscription.summaryLabel(
+            resources = resources,
+            widgetState = newApiSubscriptionWidgetState,
             loadingMsg = msgLoadingBalance,
             reauthMsg = msgNeedsReauth,
         )
@@ -166,7 +191,8 @@ fun HomeScreen(
     suspend fun refreshAll(showPullIndicator: Boolean = false) {
         val anyConfigured =
             deepSeek.isConfigured || openCode.isConfigured ||
-                codex.isConfigured || newApi.isConfigured
+                codex.isConfigured || newApi.isConfigured || zhipu.isConfigured ||
+                newApiSubscription.isConfigured
         if (!anyConfigured) return
         if (showPullIndicator) isRefreshing = true
         try {
@@ -188,8 +214,11 @@ fun HomeScreen(
         openCode.applyLoaded(settingsRepository.getOpenCodeGoSettings())
         codex.applyLoaded(settingsRepository.getCodexSettings())
         newApi.applyLoaded(settingsRepository.getNewApiSettings())
+        zhipu.applyLoaded(settingsRepository.getZhipuSettings())
+        newApiSubscription.applyLoaded(settingsRepository.getNewApiSubscriptionSettings())
         if (deepSeek.isConfigured || openCode.isConfigured ||
-            codex.isConfigured || newApi.isConfigured
+            codex.isConfigured || newApi.isConfigured || zhipu.isConfigured ||
+            newApiSubscription.isConfigured
         ) {
             refreshAll(showPullIndicator = false)
         }
@@ -292,7 +321,7 @@ fun HomeScreen(
                     }
                 }
 
-                items(PlatformRegistry.platforms, key = { it.id }) { platform ->
+                items(visiblePlatforms, key = { it.id }) { platform ->
                     PlatformConfigItem(
                         title = platform.displayName,
                         expanded = expandedPlatformId == platform.id,
@@ -326,6 +355,14 @@ fun HomeScreen(
                             )
                             PlatformIds.NEW_API -> NewApiHomeContent(
                                 state = newApi,
+                                onRefreshPlatform = onRefreshPlatform,
+                            )
+                            PlatformIds.ZHIPU -> ZhipuHomeContent(
+                                state = zhipu,
+                                onRefreshPlatform = onRefreshPlatform,
+                            )
+                            PlatformIds.NEW_API_SUBSCRIPTION -> NewApiSubscriptionHomeContent(
+                                state = newApiSubscription,
                                 onRefreshPlatform = onRefreshPlatform,
                             )
                         }

@@ -4,6 +4,7 @@ import com.kuyermqi.quotawidget.codex.CodexAuthErrors
 import com.kuyermqi.quotawidget.codex.CodexRegionUnavailableException
 import com.kuyermqi.quotawidget.domain.SessionExpiredException
 import com.kuyermqi.quotawidget.domain.WidgetDisplayState
+import com.kuyermqi.quotawidget.newapi.NewApiAdminClient
 import com.kuyermqi.quotawidget.platform.PlatformIds
 import com.kuyermqi.quotawidget.provider.QuotaProvider
 import com.kuyermqi.quotawidget.settings.PlatformSettingsRepository
@@ -12,11 +13,14 @@ import kotlinx.coroutines.CancellationException
 class BalanceRefreshInteractor(
     private val settingsRepository: PlatformSettingsRepository,
     private val providers: List<QuotaProvider>,
+    private val newApiAdminClient: NewApiAdminClient = NewApiAdminClient(),
 ) {
     private val providersById = providers.associateBy { it.platform.id }
 
     /**
      * Refreshes every configured platform. Used by WorkManager and home entry.
+     * Also covers the NewAPI admin-stats source when admin credentials exist
+     * without a user token.
      */
     suspend fun refreshAllConfigured(): List<BalanceRefreshResult> {
         val results = mutableListOf<BalanceRefreshResult>()
@@ -32,6 +36,12 @@ class BalanceRefreshInteractor(
         if (settingsRepository.getNewApiSettings().isConfigured) {
             results += refresh(PlatformIds.NEW_API)
         }
+        if (settingsRepository.getZhipuSettings().isConfigured) {
+            results += refresh(PlatformIds.ZHIPU)
+        }
+        if (settingsRepository.getNewApiSubscriptionSettings().isConfigured) {
+            results += refresh(PlatformIds.NEW_API_SUBSCRIPTION)
+        }
         return results
     }
 
@@ -46,6 +56,13 @@ class BalanceRefreshInteractor(
      * and does not retain a prior Success.
      */
     suspend fun refresh(platformId: String): BalanceRefreshResult {
+        if (platformId == PlatformIds.NEW_API) {
+            // Admin-only platform: there is no per-platform quota snapshot; the
+            // aggregated stats live in their own admin-stats store.
+            refreshNewApiAdminStatsBestEffort()
+            settingsRepository.saveWidgetNotConfigured(PlatformIds.NEW_API)
+            return BalanceRefreshResult.Completed(WidgetDisplayState.NotConfigured)
+        }
         val provider = providersById[platformId]
         if (provider == null) {
             val message = "未知平台: $platformId"
@@ -94,5 +111,26 @@ class BalanceRefreshInteractor(
         val message = error.message.orEmpty()
         return message == CodexAuthErrors.REGION_UNAVAILABLE_MESSAGE ||
             message.startsWith(CodexAuthErrors.REGION_UNAVAILABLE_MESSAGE)
+    }
+
+    /**
+     * Best-effort admin stats refresh: failures are logged but never fail the
+     * user-token refresh flow that hosts it.
+     */
+    private suspend fun refreshNewApiAdminStatsBestEffort() {
+        val settings = settingsRepository.getNewApiSettings()
+        if (!settings.isAdminConfigured) return
+        try {
+            val stats = newApiAdminClient.fetchStats(
+                baseUrl = settings.baseUrl,
+                adminToken = settings.adminToken,
+                adminUserId = settings.adminUserId,
+            )
+            settingsRepository.saveNewApiAdminStats(stats)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            println("QuotaRefresh newApiAdminStatsFailed msg=${e.message}")
+        }
     }
 }

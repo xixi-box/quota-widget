@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.appwidget.GlanceAppWidget
@@ -23,6 +24,7 @@ import com.kuyermqi.quotawidget.domain.DarkThemeMode
 import com.kuyermqi.quotawidget.domain.UsageDisplayMode
 import com.kuyermqi.quotawidget.domain.UsageProgressStyle
 import com.kuyermqi.quotawidget.domain.UsageWindowKind
+import com.kuyermqi.quotawidget.domain.NewApiAdminStats
 import com.kuyermqi.quotawidget.domain.QuotaSnapshot
 import com.kuyermqi.quotawidget.domain.QuotaWindow
 import com.kuyermqi.quotawidget.domain.QuotaWindowKind
@@ -35,9 +37,10 @@ import com.kuyermqi.quotawidget.domain.formatBalance
 import com.kuyermqi.quotawidget.platform.PlatformIds
 import com.kuyermqi.quotawidget.platform.PlatformRegistry
 import com.kuyermqi.quotawidget.settings.CodexSettings
-import com.kuyermqi.quotawidget.settings.NewApiSettings
+import com.kuyermqi.quotawidget.settings.NewApiSubscriptionSettings
 import com.kuyermqi.quotawidget.settings.OpenCodeGoSettings
 import com.kuyermqi.quotawidget.settings.PlatformSettingsRepository
+import com.kuyermqi.quotawidget.settings.ZhipuSettings
 
 /**
  * Glance [update] often recomposes without re-entering [GlanceAppWidget.provideGlance].
@@ -60,6 +63,7 @@ object WidgetGlanceState {
     val unlimitedKey = booleanPreferencesKey("qw_unlimited")
     val usedDisplayKey = stringPreferencesKey("qw_used_display")
     val emptyLimitedQuotaKey = booleanPreferencesKey("qw_empty_limited_quota")
+    val hiddenPlatformsKey = stringSetPreferencesKey("qw_hidden_platforms")
     val tokenExpiredKey = booleanPreferencesKey("qw_token_expired")
     val quotaOverspentKey = booleanPreferencesKey("qw_quota_overspent")
     val darkThemeModeKey = stringPreferencesKey("qw_dark_theme_mode")
@@ -71,8 +75,22 @@ object WidgetGlanceState {
     val codexWindowKindKey = stringPreferencesKey("qw_codex_window_kind")
     val codexUsageDisplayModeKey = stringPreferencesKey("qw_codex_usage_display")
     val codexUsageProgressStyleKey = stringPreferencesKey("qw_codex_usage_progress_style")
-    val newApiUsageDisplayModeKey = stringPreferencesKey("qw_new_api_usage_display")
-    val newApiUsageProgressStyleKey = stringPreferencesKey("qw_new_api_usage_progress_style")
+    val zhipuWindowKindKey = stringPreferencesKey("qw_zhipu_window_kind")
+    val zhipuUsageDisplayModeKey = stringPreferencesKey("qw_zhipu_usage_display")
+    val zhipuUsageProgressStyleKey = stringPreferencesKey("qw_zhipu_usage_progress_style")
+    val newApiSubscriptionUsageDisplayModeKey =
+        stringPreferencesKey("qw_newapi_sub_usage_display")
+    val newApiSubscriptionUsageProgressStyleKey =
+        stringPreferencesKey("qw_newapi_sub_usage_progress_style")
+    val newApiAdminTokensDayKey = longPreferencesKey("qw_new_api_admin_tokens_day")
+    val newApiAdminTokensMonthKey = longPreferencesKey("qw_new_api_admin_tokens_month")
+    val newApiAdminRequestsDayKey = longPreferencesKey("qw_new_api_admin_requests_day")
+    val newApiAdminRequestsMonthKey = longPreferencesKey("qw_new_api_admin_requests_month")
+    val newApiAdminRpmKey = longPreferencesKey("qw_new_api_admin_rpm")
+    val newApiAdminTpmKey = longPreferencesKey("qw_new_api_admin_tpm")
+    val newApiAdminUpdatedAtKey = longPreferencesKey("qw_new_api_admin_updated_at")
+    val newApiAdminDaySeriesKey = stringPreferencesKey("qw_new_api_admin_day_series")
+    val newApiAdminMonthSeriesKey = stringPreferencesKey("qw_new_api_admin_month_series")
 
     private object Status {
         const val NOT_CONFIGURED = "not_configured"
@@ -109,13 +127,20 @@ object WidgetGlanceState {
         Target(CodexWidget(), CodexWidget::class.java, PlatformIds.CODEX),
         Target(CodexCompactWidget(), CodexCompactWidget::class.java, PlatformIds.CODEX),
         Target(CodexOverviewWidget(), CodexOverviewWidget::class.java, PlatformIds.CODEX),
-        Target(NewApiBalanceWidget(), NewApiBalanceWidget::class.java, PlatformIds.NEW_API),
+        Target(NewApiAdminWidget(), NewApiAdminWidget::class.java, PlatformIds.NEW_API),
+        Target(ZhipuWidget(), ZhipuWidget::class.java, PlatformIds.ZHIPU),
+        Target(ZhipuCompactWidget(), ZhipuCompactWidget::class.java, PlatformIds.ZHIPU),
+        Target(ZhipuOverviewWidget(), ZhipuOverviewWidget::class.java, PlatformIds.ZHIPU),
         Target(
-            NewApiBalanceCompactWidget(),
-            NewApiBalanceCompactWidget::class.java,
-            PlatformIds.NEW_API,
+            NewApiSubscriptionWidget(),
+            NewApiSubscriptionWidget::class.java,
+            PlatformIds.NEW_API_SUBSCRIPTION,
         ),
-        Target(NewApiUsageWidget(), NewApiUsageWidget::class.java, PlatformIds.NEW_API),
+        Target(
+            NewApiSubscriptionCompactWidget(),
+            NewApiSubscriptionCompactWidget::class.java,
+            PlatformIds.NEW_API_SUBSCRIPTION,
+        ),
     )
 
     suspend fun syncAndUpdate(context: Context, reason: String) {
@@ -124,7 +149,9 @@ object WidgetGlanceState {
         val appSettings = repo.getAppSettings()
         val openCodeSettings = repo.getOpenCodeGoSettings()
         val codexSettings = repo.getCodexSettings()
-        val newApiSettings = repo.getNewApiSettings()
+        val newApiAdminStats = repo.getNewApiAdminStats()
+        val zhipuSettings = repo.getZhipuSettings()
+        val newApiSubscriptionSettings = repo.getNewApiSubscriptionSettings()
         Log.i(TAG, "syncAndUpdate reason=$reason")
 
         val manager = GlanceAppWidgetManager(context)
@@ -146,8 +173,14 @@ object WidgetGlanceState {
                             codexSettings = codexSettings.takeIf {
                                 target.platformId == PlatformIds.CODEX
                             },
-                            newApiSettings = newApiSettings.takeIf {
+                            newApiAdminStats = newApiAdminStats.takeIf {
                                 target.platformId == PlatformIds.NEW_API
+                            },
+                            zhipuSettings = zhipuSettings.takeIf {
+                                target.platformId == PlatformIds.ZHIPU
+                            },
+                            newApiSubscriptionSettings = newApiSubscriptionSettings.takeIf {
+                                target.platformId == PlatformIds.NEW_API_SUBSCRIPTION
                             },
                         )
                     }
@@ -160,6 +193,46 @@ object WidgetGlanceState {
                         "platform=${target.platformId} phase=$phase reason=$reason",
                 )
             }
+        }
+        val combinedStates = mutableMapOf<String, WidgetDisplayState>()
+        val combinedPhases = mutableMapOf<String, RefreshIconPhase>()
+        PlatformRegistry.platforms.forEach { platform ->
+            combinedStates[platform.id] = repo.getWidgetState(platform.id)
+            combinedPhases[platform.id] = repo.getRefreshIconPhase(platform.id)
+        }
+        val combinedIds = manager.getGlanceIds(CombinedOverviewWidget::class.java)
+        combinedIds.forEach { id ->
+            updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
+                prefs.toMutablePreferences().apply {
+                    this[hiddenPlatformsKey] = appSettings.hiddenPlatforms
+                    this[darkThemeModeKey] = appSettings.darkThemeMode.name
+                    this[themeColorModeKey] = appSettings.themeColorMode.name
+                    this[seedColorKey] = appSettings.customSeedColorArgb
+                    this[openCodeWindowKindKey] = openCodeSettings.widgetWindowKind.name
+                    this[openCodeUsageDisplayModeKey] = openCodeSettings.usageDisplayMode.name
+                    this[openCodeUsageProgressStyleKey] = openCodeSettings.usageProgressStyle.name
+                    this[codexWindowKindKey] = codexSettings.widgetWindowKind.name
+                    this[codexUsageDisplayModeKey] = codexSettings.usageDisplayMode.name
+                    this[codexUsageProgressStyleKey] = codexSettings.usageProgressStyle.name
+                    this[zhipuWindowKindKey] = zhipuSettings.widgetWindowKind.name
+                    this[zhipuUsageDisplayModeKey] = zhipuSettings.usageDisplayMode.name
+                    this[zhipuUsageProgressStyleKey] = zhipuSettings.usageProgressStyle.name
+                    this[newApiSubscriptionUsageDisplayModeKey] =
+                        newApiSubscriptionSettings.usageDisplayMode.name
+                    this[newApiSubscriptionUsageProgressStyleKey] =
+                        newApiSubscriptionSettings.usageProgressStyle.name
+                    writeNewApiAdminStats(newApiAdminStats)
+                    PlatformRegistry.platforms.forEach { platform ->
+                        writeCombinedPlatform(
+                            platformId = platform.id,
+                            phase = combinedPhases.getValue(platform.id),
+                            display = combinedStates.getValue(platform.id),
+                        )
+                    }
+                }
+            }
+            CombinedOverviewWidget().update(context, id)
+            updated++
         }
         if (updated == 0) {
             Log.w(TAG, "syncAndUpdate no glance ids")
@@ -189,14 +262,33 @@ object WidgetGlanceState {
         } else {
             null
         }
-        val newApiSettings = if (platformId == PlatformIds.NEW_API) {
-            repo.getNewApiSettings()
+        val newApiAdminStats = if (platformId == PlatformIds.NEW_API) {
+            repo.getNewApiAdminStats()
+        } else {
+            null
+        }
+        val zhipuSettings = if (platformId == PlatformIds.ZHIPU) {
+            repo.getZhipuSettings()
+        } else {
+            null
+        }
+        val newApiSubscriptionSettings = if (platformId == PlatformIds.NEW_API_SUBSCRIPTION) {
+            repo.getNewApiSubscriptionSettings()
         } else {
             null
         }
         updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
             prefs.toMutablePreferences().apply {
-                write(phase, display, appSettings, openCodeSettings, codexSettings, newApiSettings)
+                write(
+                    phase,
+                    display,
+                    appSettings,
+                    openCodeSettings,
+                    codexSettings,
+                    zhipuSettings,
+                    newApiAdminStats,
+                    newApiSubscriptionSettings,
+                )
             }
         }
         val verify = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
@@ -211,11 +303,15 @@ object WidgetGlanceState {
     fun Preferences.toRefreshPhase(): RefreshIconPhase =
         RefreshIconPhase.fromStorage(this[refreshPhaseKey])
 
+    fun Preferences.toCombinedRefreshPhase(platformId: String): RefreshIconPhase =
+        RefreshIconPhase.fromStorage(this[combinedStringKey(platformId, "refresh_phase")])
+
     fun Preferences.toAppThemeSettings(): AppSettings = AppSettings(
         darkThemeMode = DarkThemeMode.fromStorage(this[darkThemeModeKey]),
         themeColorMode = ThemeColorMode.fromStorage(this[themeColorModeKey]),
         customSeedColorArgb = this[seedColorKey] ?: DEFAULT_CUSTOM_SEED_COLOR_ARGB,
         refreshIntervalMinutes = DEFAULT_REFRESH_INTERVAL_MINUTES,
+        hiddenPlatforms = this[hiddenPlatformsKey].orEmpty(),
     )
 
     fun Preferences.toOpenCodeUsageWindowKind(): UsageWindowKind =
@@ -238,11 +334,42 @@ object WidgetGlanceState {
     fun Preferences.toCodexUsageProgressStyle(): UsageProgressStyle =
         UsageProgressStyle.fromStorage(this[codexUsageProgressStyleKey])
 
-    fun Preferences.toNewApiUsageDisplayMode(): UsageDisplayMode =
-        UsageDisplayMode.fromStorage(this[newApiUsageDisplayModeKey])
+    fun Preferences.toZhipuUsageWindowKind(): UsageWindowKind =
+        UsageWindowKind.fromStorage(this[zhipuWindowKindKey])
 
-    fun Preferences.toNewApiUsageProgressStyle(): UsageProgressStyle =
-        UsageProgressStyle.fromStorage(this[newApiUsageProgressStyleKey])
+    fun Preferences.toZhipuUsageDisplayMode(): UsageDisplayMode =
+        UsageDisplayMode.fromStorage(this[zhipuUsageDisplayModeKey])
+
+    fun Preferences.toZhipuUsageProgressStyle(): UsageProgressStyle =
+        UsageProgressStyle.fromStorage(this[zhipuUsageProgressStyleKey])
+
+    fun Preferences.toNewApiSubscriptionUsageDisplayMode(): UsageDisplayMode =
+        UsageDisplayMode.fromStorage(this[newApiSubscriptionUsageDisplayModeKey])
+
+    fun Preferences.toNewApiSubscriptionUsageProgressStyle(): UsageProgressStyle =
+        UsageProgressStyle.fromStorage(this[newApiSubscriptionUsageProgressStyleKey])
+
+    fun Preferences.toNewApiAdminStats(): NewApiAdminStats? {
+        val updatedAt = this[newApiAdminUpdatedAtKey] ?: return null
+        if (updatedAt <= 0L) return null
+        return NewApiAdminStats(
+            tokensDay = this[newApiAdminTokensDayKey] ?: 0L,
+            tokensMonth = this[newApiAdminTokensMonthKey] ?: 0L,
+            requestsDay = this[newApiAdminRequestsDayKey] ?: 0L,
+            requestsMonth = this[newApiAdminRequestsMonthKey] ?: 0L,
+            rpm = this[newApiAdminRpmKey] ?: 0L,
+            tpm = this[newApiAdminTpmKey] ?: 0L,
+            daySeries = parseSeries(this[newApiAdminDaySeriesKey]),
+            monthSeries = parseSeries(this[newApiAdminMonthSeriesKey]),
+            updatedAtEpochMs = updatedAt,
+        )
+    }
+
+    private fun parseSeries(joined: String?): List<Long> =
+        joined?.takeIf { it.isNotBlank() }
+            ?.split(',')
+            ?.mapNotNull { it.trim().toLongOrNull() }
+            .orEmpty()
 
     fun Preferences.toDisplayState(): WidgetDisplayState {
         return when (this[statusKey]) {
@@ -287,18 +414,51 @@ object WidgetGlanceState {
         }
     }
 
+    fun Preferences.toCombinedDisplayState(platformId: String): WidgetDisplayState {
+        val key: (String) -> Preferences.Key<String> = { suffix ->
+            combinedStringKey(platformId, suffix)
+        }
+        return when (this[key("status")]) {
+            Status.LOADING -> WidgetDisplayState.Loading
+            Status.NEEDS_REAUTH -> WidgetDisplayState.NeedsReauth
+            Status.ERROR -> WidgetDisplayState.Error(this[key("error")] ?: "刷新失败")
+            Status.SUCCESS -> WidgetDisplayState.Success(
+                QuotaSnapshot(
+                    platformId = platformId,
+                    platformName = this[key("platform_name")]
+                        ?: PlatformRegistry.displayName(platformId),
+                    windows = decodeQuotaWindows(this[key("windows")]).orEmpty(),
+                    primaryDisplay = this[key("formatted")].orEmpty(),
+                    updatedAtEpochMs = this[combinedLongKey(platformId, "updated_at")] ?: 0L,
+                    currency = CurrencyPreference.fromStorage(this[key("currency")]),
+                    totalBalance = this[key("total")] ?: "0",
+                    unlimitedQuota = this[combinedBooleanKey(platformId, "unlimited")] == true,
+                    usedDisplay = this[key("used_display")].orEmpty(),
+                    emptyLimitedQuota =
+                        this[combinedBooleanKey(platformId, "empty_limited_quota")] == true,
+                    tokenExpired = this[combinedBooleanKey(platformId, "token_expired")] == true,
+                    quotaOverspent = this[combinedBooleanKey(platformId, "quota_overspent")] == true,
+                ),
+            )
+            else -> WidgetDisplayState.NotConfigured
+        }
+    }
+
     private fun MutablePreferences.write(
         phase: RefreshIconPhase,
         display: WidgetDisplayState,
         appSettings: AppSettings,
         openCodeSettings: OpenCodeGoSettings?,
         codexSettings: CodexSettings?,
-        newApiSettings: NewApiSettings?,
+        zhipuSettings: ZhipuSettings? = null,
+        newApiAdminStats: NewApiAdminStats? = null,
+        newApiSubscriptionSettings: NewApiSubscriptionSettings? = null,
     ) {
         this[refreshPhaseKey] = phase.name
         this[darkThemeModeKey] = appSettings.darkThemeMode.name
         this[themeColorModeKey] = appSettings.themeColorMode.name
         this[seedColorKey] = appSettings.customSeedColorArgb
+        this[hiddenPlatformsKey] = appSettings.hiddenPlatforms
         if (openCodeSettings != null) {
             this[openCodeWindowKindKey] = openCodeSettings.widgetWindowKind.name
             this[openCodeUsageDisplayModeKey] = openCodeSettings.usageDisplayMode.name
@@ -309,10 +469,17 @@ object WidgetGlanceState {
             this[codexUsageDisplayModeKey] = codexSettings.usageDisplayMode.name
             this[codexUsageProgressStyleKey] = codexSettings.usageProgressStyle.name
         }
-        if (newApiSettings != null) {
-            this[newApiUsageDisplayModeKey] = newApiSettings.usageDisplayMode.name
-            this[newApiUsageProgressStyleKey] = newApiSettings.usageProgressStyle.name
+        if (zhipuSettings != null) {
+            this[zhipuWindowKindKey] = zhipuSettings.widgetWindowKind.name
+            this[zhipuUsageDisplayModeKey] = zhipuSettings.usageDisplayMode.name
+            this[zhipuUsageProgressStyleKey] = zhipuSettings.usageProgressStyle.name
         }
+        if (newApiSubscriptionSettings != null) {
+            this[newApiSubscriptionUsageDisplayModeKey] = newApiSubscriptionSettings.usageDisplayMode.name
+            this[newApiSubscriptionUsageProgressStyleKey] =
+                newApiSubscriptionSettings.usageProgressStyle.name
+        }
+        writeNewApiAdminStats(newApiAdminStats)
         when (display) {
             WidgetDisplayState.NotConfigured -> {
                 this[statusKey] = Status.NOT_CONFIGURED
@@ -352,4 +519,70 @@ object WidgetGlanceState {
             }
         }
     }
+
+    private fun MutablePreferences.writeNewApiAdminStats(stats: NewApiAdminStats?) {
+        if (stats == null) {
+            remove(newApiAdminUpdatedAtKey)
+            return
+        }
+        this[newApiAdminTokensDayKey] = stats.tokensDay
+        this[newApiAdminTokensMonthKey] = stats.tokensMonth
+        this[newApiAdminRequestsDayKey] = stats.requestsDay
+        this[newApiAdminRequestsMonthKey] = stats.requestsMonth
+        this[newApiAdminRpmKey] = stats.rpm
+        this[newApiAdminTpmKey] = stats.tpm
+        this[newApiAdminUpdatedAtKey] = stats.updatedAtEpochMs
+        this[newApiAdminDaySeriesKey] = stats.daySeries.joinToString(",")
+        this[newApiAdminMonthSeriesKey] = stats.monthSeries.joinToString(",")
+    }
+
+    private fun MutablePreferences.writeCombinedPlatform(
+        platformId: String,
+        phase: RefreshIconPhase,
+        display: WidgetDisplayState,
+    ) {
+        val key: (String) -> Preferences.Key<String> = { suffix ->
+            combinedStringKey(platformId, suffix)
+        }
+        this[key("refresh_phase")] = phase.name
+        when (display) {
+            WidgetDisplayState.NotConfigured -> this[key("status")] = Status.NOT_CONFIGURED
+            WidgetDisplayState.Loading -> this[key("status")] = Status.LOADING
+            WidgetDisplayState.NeedsReauth -> this[key("status")] = Status.NEEDS_REAUTH
+            is WidgetDisplayState.Error -> {
+                this[key("status")] = Status.ERROR
+                this[key("error")] = display.message
+            }
+            is WidgetDisplayState.Success -> {
+                val snapshot = display.snapshot
+                this[key("status")] = Status.SUCCESS
+                this[key("platform_name")] = snapshot.platformName
+                this[key("currency")] = snapshot.currency.name
+                this[key("total")] = snapshot.totalBalance
+                this[key("formatted")] = snapshot.primaryDisplay
+                this[key("windows")] = encodeQuotaWindows(snapshot.windows)
+                this[combinedLongKey(platformId, "updated_at")] = snapshot.updatedAtEpochMs
+                this[combinedBooleanKey(platformId, "unlimited")] = snapshot.unlimitedQuota
+                this[combinedBooleanKey(platformId, "empty_limited_quota")] =
+                    snapshot.emptyLimitedQuota
+                this[combinedBooleanKey(platformId, "token_expired")] = snapshot.tokenExpired
+                this[combinedBooleanKey(platformId, "quota_overspent")] = snapshot.quotaOverspent
+                if (snapshot.usedDisplay.isBlank()) {
+                    remove(key("used_display"))
+                } else {
+                    this[key("used_display")] = snapshot.usedDisplay
+                }
+                remove(key("error"))
+            }
+        }
+    }
+
+    private fun combinedStringKey(platformId: String, suffix: String) =
+        stringPreferencesKey("qw_combined_${platformId}_$suffix")
+
+    private fun combinedLongKey(platformId: String, suffix: String) =
+        longPreferencesKey("qw_combined_${platformId}_$suffix")
+
+    private fun combinedBooleanKey(platformId: String, suffix: String) =
+        booleanPreferencesKey("qw_combined_${platformId}_$suffix")
 }

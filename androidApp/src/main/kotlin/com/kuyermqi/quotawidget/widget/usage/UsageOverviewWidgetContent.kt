@@ -88,6 +88,20 @@ private val ComfortableDensity = OverviewDensity(
     capsuleHeight = 28.dp,
 )
 
+private fun OverviewDensity.scaledBy(scale: Float): OverviewDensity = OverviewDensity(
+    paddingStart = paddingStart * scale,
+    paddingTop = paddingTop * scale,
+    paddingEnd = paddingEnd * scale,
+    paddingBottom = paddingBottom * scale,
+    headerGap = headerGap * scale,
+    rowGap = rowGap * scale,
+    labelBarGap = labelBarGap * scale,
+    updatedGap = updatedGap * scale,
+    labelSize = labelSize * scale,
+    updatedSize = updatedSize * scale,
+    capsuleHeight = capsuleHeight * scale,
+)
+
 @Composable
 fun UsageOverviewWidgetContent(
     platformId: String,
@@ -99,11 +113,7 @@ fun UsageOverviewWidgetContent(
     usageProgressStyle: UsageProgressStyle,
     overviewKinds: List<QuotaWindowKind>,
 ) {
-    val density = if (LocalSize.current.height >= UsageOverviewSizeComfortable.height) {
-        ComfortableDensity
-    } else {
-        CompactDensity
-    }
+    val comfortable = LocalSize.current.height >= UsageOverviewSizeComfortable.height
     Box(
         modifier = GlanceModifier
             .fillMaxSize()
@@ -117,65 +127,102 @@ fun UsageOverviewWidgetContent(
             colorFilter = ColorFilter.tint(GlanceTheme.colors.widgetBackground),
             modifier = GlanceModifier.fillMaxSize(),
         )
-        Column(
-            modifier = GlanceModifier
-                .fillMaxSize()
-                .padding(
-                    start = density.paddingStart,
-                    top = density.paddingTop,
-                    end = density.paddingEnd,
-                    bottom = density.paddingBottom,
-                ),
-        ) {
-            WidgetHeader(platformId, platformTitle, refreshPhase, openApp)
-            if (density.headerGap > 0.dp) {
-                Spacer(modifier = GlanceModifier.height(density.headerGap))
+        UsageOverviewCard(
+            platformId = platformId,
+            platformTitle = platformTitle,
+            state = state,
+            refreshPhase = refreshPhase,
+            openApp = openApp,
+            usageDisplayMode = usageDisplayMode,
+            usageProgressStyle = usageProgressStyle,
+            overviewKinds = overviewKinds,
+            comfortable = comfortable,
+            fillHeight = true,
+        )
+    }
+}
+
+/**
+ * Card content without its own background: reused by the combined overview
+ * widget, which stacks one card per platform inside its own container.
+ * [fillHeight] pushes rows to the card bottom (single widget); stacked cards
+ * use wrap height so rows follow the header.
+ */
+@Composable
+fun UsageOverviewCard(
+    platformId: String,
+    platformTitle: String,
+    state: WidgetDisplayState,
+    refreshPhase: RefreshIconPhase,
+    openApp: Action,
+    usageDisplayMode: UsageDisplayMode,
+    usageProgressStyle: UsageProgressStyle,
+    overviewKinds: List<QuotaWindowKind>,
+    comfortable: Boolean,
+    fillHeight: Boolean,
+    densityScale: Float = 1f,
+    statusTitleSizeSp: Float = 32f,
+) {
+    val density = (if (comfortable) ComfortableDensity else CompactDensity).scaledBy(densityScale)
+    Column(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .then(if (fillHeight) GlanceModifier.fillMaxSize() else GlanceModifier)
+            .padding(
+                start = density.paddingStart,
+                top = density.paddingTop,
+                end = density.paddingEnd,
+                bottom = density.paddingBottom,
+            ),
+    ) {
+        WidgetHeader(platformId, platformTitle, refreshPhase, openApp, scale = densityScale)
+        if (density.headerGap > 0.dp) {
+            Spacer(modifier = GlanceModifier.height(density.headerGap))
+        }
+        when (state) {
+            WidgetDisplayState.NotConfigured,
+            WidgetDisplayState.Loading,
+            WidgetDisplayState.NeedsReauth,
+            is WidgetDisplayState.Error,
+            -> {
+                Spacer(
+                    modifier = GlanceModifier
+                        .defaultWeight()
+                        .fillMaxWidth()
+                        .clickableNoRipple(openApp),
+                )
+                BalanceBlock(
+                    title = when (state) {
+                        WidgetDisplayState.NotConfigured ->
+                            contextString(R.string.widget_not_configured)
+                        WidgetDisplayState.Loading ->
+                            contextString(R.string.widget_loading_balance)
+                        WidgetDisplayState.NeedsReauth ->
+                            contextString(R.string.widget_needs_reauth)
+                        is WidgetDisplayState.Error ->
+                            contextString(R.string.widget_fetch_failed)
+                        is WidgetDisplayState.Success -> ""
+                    },
+                    subtitle = null,
+                    titleSize = statusTitleSizeSp.sp * densityScale,
+                    openApp = openApp,
+                )
             }
-            when (state) {
-                WidgetDisplayState.NotConfigured,
-                WidgetDisplayState.Loading,
-                WidgetDisplayState.NeedsReauth,
-                is WidgetDisplayState.Error,
-                -> {
-                    Spacer(
-                        modifier = GlanceModifier
-                            .defaultWeight()
-                            .fillMaxWidth()
-                            .clickableNoRipple(openApp),
-                    )
-                    BalanceBlock(
-                        title = when (state) {
-                            WidgetDisplayState.NotConfigured ->
-                                contextString(R.string.widget_not_configured)
-                            WidgetDisplayState.Loading ->
-                                contextString(R.string.widget_loading_balance)
-                            WidgetDisplayState.NeedsReauth ->
-                                contextString(R.string.widget_needs_reauth)
-                            is WidgetDisplayState.Error ->
-                                contextString(R.string.widget_fetch_failed)
-                            is WidgetDisplayState.Success -> ""
-                        },
-                        subtitle = null,
-                        titleSize = 32.sp,
-                        openApp = openApp,
-                    )
-                }
-                is WidgetDisplayState.Success -> {
-                    Spacer(
-                        modifier = GlanceModifier
-                            .defaultWeight()
-                            .fillMaxWidth()
-                            .clickableNoRipple(openApp),
-                    )
-                    UsageOverviewSuccessBlock(
-                        snapshot = state.snapshot,
-                        openApp = openApp,
-                        density = density,
-                        usageDisplayMode = usageDisplayMode,
-                        usageProgressStyle = usageProgressStyle,
-                        overviewKinds = overviewKinds,
-                    )
-                }
+            is WidgetDisplayState.Success -> {
+                Spacer(
+                    modifier = GlanceModifier
+                        .defaultWeight()
+                        .fillMaxWidth()
+                        .clickableNoRipple(openApp),
+                )
+                UsageOverviewSuccessBlock(
+                    snapshot = state.snapshot,
+                    openApp = openApp,
+                    density = density,
+                    usageDisplayMode = usageDisplayMode,
+                    usageProgressStyle = usageProgressStyle,
+                    overviewKinds = overviewKinds,
+                )
             }
         }
     }

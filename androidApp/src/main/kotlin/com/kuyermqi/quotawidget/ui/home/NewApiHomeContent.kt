@@ -1,7 +1,14 @@
 package com.kuyermqi.quotawidget.ui.home
 
-import android.content.res.Resources
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -9,20 +16,26 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kuyermqi.quotawidget.R
-import com.kuyermqi.quotawidget.domain.QuotaSnapshot
-import com.kuyermqi.quotawidget.domain.QuotaWindow
-import com.kuyermqi.quotawidget.domain.UsageDisplayMode
-import com.kuyermqi.quotawidget.domain.UsageProgressStyle
+import com.kuyermqi.quotawidget.domain.NewApiAdminStats
 import com.kuyermqi.quotawidget.domain.WidgetDisplayState
-import com.kuyermqi.quotawidget.domain.formatNewApiBalanceTitle
+import com.kuyermqi.quotawidget.domain.averageRpmDay
+import com.kuyermqi.quotawidget.domain.averageTpmDay
+import com.kuyermqi.quotawidget.domain.formatNewApiAdminRate
+import com.kuyermqi.quotawidget.domain.formatRequestCount
+import com.kuyermqi.quotawidget.domain.formatTokenCount
 import com.kuyermqi.quotawidget.platform.PlatformIds
-import com.kuyermqi.quotawidget.settings.DEFAULT_NEW_API_QUOTA_PER_USD
 import com.kuyermqi.quotawidget.settings.NewApiSettings
 import com.kuyermqi.quotawidget.settings.PlatformSettingsRepository
 import com.kuyermqi.quotawidget.ui.components.NewApiConfigContent
+import com.kuyermqi.quotawidget.ui.components.TokenLineChart
+import com.kuyermqi.quotawidget.widget.WidgetDateFormatter
 import com.kuyermqi.quotawidget.widget.WidgetGlanceState
 import kotlinx.coroutines.launch
 
@@ -33,27 +46,9 @@ class NewApiHomeState internal constructor(
         internal set
     var draftBaseUrl by mutableStateOf("")
         internal set
-    var draftApiKey by mutableStateOf("")
+    var draftAdminToken by mutableStateOf("")
         internal set
-    var draftQuotaPerUsd by mutableStateOf(DEFAULT_NEW_API_QUOTA_PER_USD.toString())
-        internal set
-    var draftUsageDisplayMode by mutableStateOf(UsageDisplayMode.USED)
-        internal set
-    var draftUsageProgressStyle by mutableStateOf(UsageProgressStyle.BAR)
-        internal set
-    var lastDisplay by mutableStateOf<String?>(null)
-        internal set
-    var lastUsedDisplay by mutableStateOf("")
-        internal set
-    var lastUnlimitedQuota by mutableStateOf(false)
-        internal set
-    var lastEmptyLimitedQuota by mutableStateOf(false)
-        internal set
-    var lastTokenExpired by mutableStateOf(false)
-        internal set
-    var lastQuotaOverspent by mutableStateOf(false)
-        internal set
-    var lastWindows by mutableStateOf<List<QuotaWindow>>(emptyList())
+    var draftAdminUserId by mutableStateOf("")
         internal set
     var isSaving by mutableStateOf(false)
         internal set
@@ -65,66 +60,19 @@ class NewApiHomeState internal constructor(
     val isConfigured: Boolean
         get() = saved.isConfigured
 
-    private val parsedQuotaPerUsd: Long?
-        get() = draftQuotaPerUsd.trim().toLongOrNull()?.takeIf { it > 0L }
-
     val isDirty: Boolean
         get() = loaded && (
             draftBaseUrl.trim().trimEnd('/') != saved.baseUrl ||
-                draftApiKey != saved.apiKey ||
-                parsedQuotaPerUsd != saved.quotaPerUsd ||
-                draftUsageDisplayMode != saved.usageDisplayMode ||
-                draftUsageProgressStyle != saved.usageProgressStyle
+                draftAdminToken != saved.adminToken ||
+                draftAdminUserId.trim() != saved.adminUserId
             )
 
     fun applyLoaded(settings: NewApiSettings) {
         saved = settings
         draftBaseUrl = settings.baseUrl
-        draftApiKey = settings.apiKey
-        draftQuotaPerUsd = settings.quotaPerUsd.toString()
-        draftUsageDisplayMode = settings.usageDisplayMode
-        draftUsageProgressStyle = settings.usageProgressStyle
+        draftAdminToken = settings.adminToken
+        draftAdminUserId = settings.adminUserId
         loaded = true
-    }
-
-    fun summaryLabel(
-        resources: Resources,
-        widgetState: WidgetDisplayState,
-        loadingMsg: String,
-        reauthMsg: String,
-    ): String? {
-        if (!isConfigured) return null
-        fun balanceLabel(amount: String): String =
-            resources.getString(R.string.new_api_balance_summary, amount)
-        val mode = saved.usageDisplayMode
-        fun amountFor(snapshot: QuotaSnapshot): String? =
-            formatNewApiBalanceTitle(snapshot, mode)
-        return when (widgetState) {
-            is WidgetDisplayState.Success -> {
-                val amount = amountFor(widgetState.snapshot) ?: return null
-                if (widgetState.snapshot.tokenExpired) {
-                    resources.getString(R.string.new_api_balance_summary_expired, amount)
-                } else {
-                    balanceLabel(amount)
-                }
-            }
-            WidgetDisplayState.Loading -> {
-                val cached = when (mode) {
-                    UsageDisplayMode.USED -> lastUsedDisplay.takeIf { it.isNotBlank() }
-                    UsageDisplayMode.REMAINING -> lastDisplay
-                }
-                cached?.let(::balanceLabel) ?: loadingMsg
-            }
-            is WidgetDisplayState.Error -> {
-                val cached = when (mode) {
-                    UsageDisplayMode.USED -> lastUsedDisplay.takeIf { it.isNotBlank() }
-                    UsageDisplayMode.REMAINING -> lastDisplay
-                }
-                cached?.let(::balanceLabel)
-            }
-            WidgetDisplayState.NeedsReauth -> reauthMsg
-            WidgetDisplayState.NotConfigured -> null
-        }
     }
 
     internal fun repository(): PlatformSettingsRepository = settingsRepository
@@ -138,20 +86,16 @@ fun rememberNewApiHomeState(
 }
 
 @Composable
-fun NewApiHomeEffects(state: NewApiHomeState): WidgetDisplayState {
-    val observed by state.repository().observeWidgetState(PlatformIds.NEW_API)
-        .collectAsStateWithLifecycle(initialValue = WidgetDisplayState.NotConfigured)
-    LaunchedEffect(observed) {
-        val success = observed as? WidgetDisplayState.Success ?: return@LaunchedEffect
-        state.lastDisplay = success.snapshot.primaryDisplay
-        state.lastUsedDisplay = success.snapshot.usedDisplay
-        state.lastUnlimitedQuota = success.snapshot.unlimitedQuota
-        state.lastEmptyLimitedQuota = success.snapshot.emptyLimitedQuota
-        state.lastTokenExpired = success.snapshot.tokenExpired
-        state.lastQuotaOverspent = success.snapshot.quotaOverspent
-        state.lastWindows = success.snapshot.windows
+fun NewApiHomeEffects(state: NewApiHomeState) {
+    // Keeps admin stats fresh in-app: each save/refresh persists them and this
+    // flow re-emits the stored values.
+    state.repository().observeNewApiAdminStats()
+        .collectAsStateWithLifecycle(initialValue = null)
+    LaunchedEffect(state.loaded) {
+        if (!state.loaded) return@LaunchedEffect
+        val latest = state.repository().getNewApiSettings()
+        state.applyLoaded(latest)
     }
-    return observed
 }
 
 @Composable
@@ -162,55 +106,50 @@ fun ColumnScope.NewApiHomeContent(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    if (state.saved.isAdminConfigured) {
+        val adminStats by state.repository().observeNewApiAdminStats()
+            .collectAsStateWithLifecycle(initialValue = null)
+        adminStats?.let { stats ->
+            NewApiAdminStatsPanel(stats)
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+        if (adminStats == null) {
+            Text(
+                text = stringResource(R.string.new_api_admin_home_missing),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+    }
+
     NewApiConfigContent(
         baseUrl = state.draftBaseUrl,
         onBaseUrlChange = {
             state.draftBaseUrl = it
             state.saveError = null
         },
-        apiKey = state.draftApiKey,
-        onApiKeyChange = {
-            state.draftApiKey = it
+        adminToken = state.draftAdminToken,
+        onAdminTokenChange = {
+            state.draftAdminToken = it
             state.saveError = null
         },
-        quotaPerUsd = state.draftQuotaPerUsd,
-        onQuotaPerUsdChange = { value ->
+        adminUserId = state.draftAdminUserId,
+        onAdminUserIdChange = { value ->
             if (value.isEmpty() || value.all { it.isDigit() }) {
-                state.draftQuotaPerUsd = value
+                state.draftAdminUserId = value
                 state.saveError = null
             }
-        },
-        windows = state.lastWindows,
-        unlimitedQuota = state.lastUnlimitedQuota,
-        emptyLimitedQuota = state.lastEmptyLimitedQuota,
-        tokenExpired = state.lastTokenExpired,
-        quotaOverspent = state.lastQuotaOverspent,
-        usageDisplayMode = state.draftUsageDisplayMode,
-        onUsageDisplayModeChange = {
-            state.draftUsageDisplayMode = it
-            state.saveError = null
-        },
-        usageProgressStyle = state.draftUsageProgressStyle,
-        onUsageProgressStyleChange = {
-            state.draftUsageProgressStyle = it
-            state.saveError = null
         },
         isDirty = state.isDirty,
         isSaving = state.isSaving,
         saveError = state.saveError,
         onSave = {
             scope.launch {
-                val quotaPerUsd = state.draftQuotaPerUsd.trim().toLongOrNull()?.takeIf { it > 0L }
-                if (quotaPerUsd == null) {
-                    state.saveError = context.getString(R.string.new_api_quota_per_usd_invalid)
-                    return@launch
-                }
                 val next = NewApiSettings(
                     baseUrl = state.draftBaseUrl.trim().trimEnd('/'),
-                    apiKey = state.draftApiKey.trim(),
-                    quotaPerUsd = quotaPerUsd,
-                    usageDisplayMode = state.draftUsageDisplayMode,
-                    usageProgressStyle = state.draftUsageProgressStyle,
+                    adminToken = state.draftAdminToken.trim(),
+                    adminUserId = state.draftAdminUserId.trim(),
                 )
                 state.isSaving = true
                 state.saveError = null
@@ -218,23 +157,9 @@ fun ColumnScope.NewApiHomeContent(
                     state.repository().saveNewApiSettings(next)
                     state.saved = next
                     state.draftBaseUrl = next.baseUrl
-                    state.draftApiKey = next.apiKey
-                    state.draftQuotaPerUsd = next.quotaPerUsd.toString()
-                    if (!next.isConfigured) {
-                        state.lastDisplay = null
-                        state.lastUsedDisplay = ""
-                        state.lastUnlimitedQuota = false
-                        state.lastEmptyLimitedQuota = false
-                        state.lastTokenExpired = false
-                        state.lastQuotaOverspent = false
-                        state.lastWindows = emptyList()
-                    }
-                    state.saveError = when (
-                        val result = onRefreshPlatform(PlatformIds.NEW_API)
-                    ) {
-                        is WidgetDisplayState.Error -> result.message
-                        else -> null
-                    }
+                    state.draftAdminToken = next.adminToken
+                    state.draftAdminUserId = next.adminUserId
+                    onRefreshPlatform(PlatformIds.NEW_API)
                     WidgetGlanceState.syncAndUpdate(context, "new_api_save")
                 } finally {
                     state.isSaving = false
@@ -242,4 +167,94 @@ fun ColumnScope.NewApiHomeContent(
             }
         },
     )
+}
+
+/** Admin visualization: headline stats, RPM/TPM, and two token curve charts. */
+@Composable
+private fun NewApiAdminStatsPanel(stats: NewApiAdminStats) {
+    Column {
+        Text(
+            text = stringResource(R.string.new_api_admin_home_title),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AdminStatCell(
+                label = stringResource(R.string.new_api_admin_stat_day),
+                value = formatTokenCount(stats.tokensDay),
+                modifier = Modifier.weight(1f),
+            )
+            AdminStatCell(
+                label = stringResource(R.string.new_api_admin_stat_month),
+                value = formatTokenCount(stats.tokensMonth),
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AdminStatCell(
+                label = stringResource(R.string.new_api_admin_stat_requests_day),
+                value = formatRequestCount(stats.requestsDay),
+                modifier = Modifier.weight(1f),
+            )
+            AdminStatCell(
+                label = stringResource(R.string.new_api_admin_stat_rpm),
+                value = formatNewApiAdminRate(stats.averageRpmDay()),
+                modifier = Modifier.weight(1f),
+            )
+            AdminStatCell(
+                label = stringResource(R.string.new_api_admin_stat_tpm),
+                value = formatNewApiAdminRate(stats.averageTpmDay()),
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        TokenLineChart(
+            values = stats.daySeries,
+            title = stringResource(R.string.new_api_admin_chart_day),
+            startLabel = stringResource(R.string.new_api_admin_chart_range_day),
+            endLabel = stringResource(R.string.new_api_admin_chart_now),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        TokenLineChart(
+            values = stats.monthSeries,
+            title = stringResource(R.string.new_api_admin_chart_month),
+            startLabel = stringResource(R.string.new_api_admin_chart_range_month),
+            endLabel = stringResource(R.string.new_api_admin_chart_today),
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = WidgetDateFormatter.formatUpdatedAt(stats.updatedAtEpochMs),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun AdminStatCell(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
 }

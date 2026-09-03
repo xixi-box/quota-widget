@@ -3,14 +3,17 @@ package com.kuyermqi.quotawidget
 import android.app.Application
 import com.kuyermqi.quotawidget.provider.CodexQuotaProvider
 import com.kuyermqi.quotawidget.provider.DeepSeekQuotaProvider
-import com.kuyermqi.quotawidget.provider.NewApiQuotaProvider
+import com.kuyermqi.quotawidget.provider.NewApiSubscriptionQuotaProvider
 import com.kuyermqi.quotawidget.provider.OpenCodeGoQuotaProvider
+import com.kuyermqi.quotawidget.provider.ZhipuQuotaProvider
 import com.kuyermqi.quotawidget.refresh.BalanceRefreshInteractor
 import com.kuyermqi.quotawidget.settings.AndroidPlatformSettingsRepository
 import com.kuyermqi.quotawidget.settings.PlatformSettingsRepository
 import com.kuyermqi.quotawidget.ui.theme.AppNightMode
 import com.kuyermqi.quotawidget.update.UpdateCheckInteractor
 import com.kuyermqi.quotawidget.widget.PeriodicRefreshScheduler
+import com.kuyermqi.quotawidget.widget.PlatformWidgetVisibility
+import com.kuyermqi.quotawidget.widget.WidgetGlanceState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,7 +54,8 @@ class QuotaWidgetApp : Application() {
                 DeepSeekQuotaProvider(),
                 OpenCodeGoQuotaProvider(),
                 CodexQuotaProvider(),
-                NewApiQuotaProvider(),
+                ZhipuQuotaProvider(),
+                NewApiSubscriptionQuotaProvider(),
             ),
         )
         updateCheckInteractor = UpdateCheckInteractor(
@@ -63,6 +67,16 @@ class QuotaWidgetApp : Application() {
             android.util.Log.i("QuotaRefresh", "onCreate cleared refresh phases")
             val interval = settingsRepository.getAppSettings().refreshIntervalMinutes
             PeriodicRefreshScheduler.schedule(this@QuotaWidgetApp, interval)
+        }
+        appScope.launch {
+            settingsRepository.observeAppSettings()
+                .map { it.hiddenPlatforms }
+                .distinctUntilChanged()
+                .collect { hidden ->
+                    PlatformWidgetVisibility.applyVisibility(this@QuotaWidgetApp, hidden)
+                    // 平台组合 changes must reach the combined widget immediately.
+                    WidgetGlanceState.syncAndUpdate(this@QuotaWidgetApp, "platform_combo")
+                }
         }
         appScope.launch {
             settingsRepository.observeAppSettings()

@@ -26,7 +26,7 @@
 
 ## Features
 
-- **Multi-platform monitoring**: DeepSeek balance, OpenCode Go usage, Codex subscription usage (weekly / monthly), and NewAPI token balance / usage
+- **Multi-platform monitoring**: DeepSeek balance, OpenCode Go usage, Codex subscription usage (weekly / monthly), NewAPI token balance / usage, and Zhipu GLM Coding Plan usage
 - **Multiple widget sizes**: Standard, compact, and usage overview layouts
 - **Background refresh**: WorkManager periodic updates plus tap-to-refresh
 - **Secure storage**: API keys / OAuth tokens encrypted with Tink before DataStore persistence
@@ -41,7 +41,13 @@
 | **DeepSeek** | API account balance | Standard · Compact |
 | **OpenCode Go** | Rolling / weekly / monthly usage or remaining (configurable) | Standard · Compact · Overview |
 | **Codex** | Weekly / monthly usage or remaining (in-app OAuth login) | Standard · Compact · Overview |
-| **NewAPI** | Token balance (USD) and usage/remaining percent (configurable Base URL + API Key) | Balance standard · Balance compact · Usage |
+| **NewAPI Admin** | Admin platform usage: daily / monthly tokens, average RPM/TPM, 24-hour and 30-day curves | Platform usage |
+| **Zhipu** | GLM Coding Plan 5-hour / weekly usage or remaining (configurable, API key only) | Standard · Compact · Overview |
+| **NewAPI Subscription** | Subscription remaining balance, usage percent, and reset/expiry time (system access token + user ID) | Standard · Compact |
+
+> **NewAPI admins**: fill in the optional admin access token and user ID in the NewAPI config to add the "platform usage" widget, summarizing instance-wide token usage over the past day / month plus 24-hour average RPM/TPM.
+>
+> **Platform combo**: pick the platforms you actually use under "App settings → Platform combo"; unchecked platforms disappear from the home screen and the widget picker (widgets already placed keep working).
 
 ## Download
 

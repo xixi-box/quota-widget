@@ -52,6 +52,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -61,7 +62,10 @@ import com.kuyermqi.quotawidget.domain.ALLOWED_REFRESH_INTERVAL_MINUTES
 import com.kuyermqi.quotawidget.domain.AppSettings
 import com.kuyermqi.quotawidget.domain.DarkThemeMode
 import com.kuyermqi.quotawidget.domain.ThemeColorMode
+import com.kuyermqi.quotawidget.platform.PlatformRegistry
 import com.kuyermqi.quotawidget.settings.PlatformSettingsRepository
+import com.kuyermqi.quotawidget.widget.PlatformWidgetVisibility
+import com.kuyermqi.quotawidget.widget.WidgetGlanceState
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -71,6 +75,7 @@ fun AppSettingsScreen(
     onBack: () -> Unit,
     onRefreshIntervalChanged: (Int) -> Unit,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val appSettings by settingsRepository.observeAppSettings()
         .collectAsStateWithLifecycle(initialValue = AppSettings())
@@ -245,6 +250,54 @@ fun AppSettingsScreen(
                             )
                         }
                     }
+                }
+            }
+
+            item(key = "platform_combo") {
+                SettingsSection(title = stringResource(R.string.app_settings_platform_combo)) {
+                    Text(
+                        text = stringResource(R.string.app_settings_platform_combo_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PlatformRegistry.platforms.forEach { platform ->
+                            val visible = platform.id !in appSettings.hiddenPlatforms
+                            FilterChip(
+                                selected = visible,
+                                onClick = {
+                                    scope.launch {
+                                        val nextHidden = if (visible) {
+                                            appSettings.hiddenPlatforms + platform.id
+                                        } else {
+                                            appSettings.hiddenPlatforms - platform.id
+                                        }
+                                        settingsRepository.saveAppSettings(
+                                            appSettings.copy(hiddenPlatforms = nextHidden),
+                                        )
+                                        PlatformWidgetVisibility.applyVisibility(context, nextHidden)
+                                        WidgetGlanceState.syncAndUpdate(context, "platform_combo_user")
+                                    }
+                                },
+                                label = { Text(platform.displayName) },
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(
+                            R.string.app_settings_platform_combo_summary,
+                            PlatformRegistry.platforms.count { platform ->
+                                platform.id !in appSettings.hiddenPlatforms
+                            },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 

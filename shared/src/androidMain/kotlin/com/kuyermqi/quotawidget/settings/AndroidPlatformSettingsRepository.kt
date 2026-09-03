@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
@@ -24,6 +25,7 @@ import com.kuyermqi.quotawidget.domain.DEFAULT_REFRESH_INTERVAL_MINUTES
 import com.kuyermqi.quotawidget.domain.UsageDisplayMode
 import com.kuyermqi.quotawidget.domain.UsageProgressStyle
 import com.kuyermqi.quotawidget.domain.UsageWindowKind
+import com.kuyermqi.quotawidget.domain.NewApiAdminStats
 import com.kuyermqi.quotawidget.domain.QuotaSnapshot
 import com.kuyermqi.quotawidget.domain.QuotaWindow
 import com.kuyermqi.quotawidget.domain.QuotaWindowKind
@@ -191,32 +193,143 @@ class AndroidPlatformSettingsRepository(
         dataStore.edit { prefs ->
             if (!settings.isConfigured) {
                 prefs.remove(Keys.NEW_API_BASE_URL)
-                prefs.remove(Keys.NEW_API_KEY_ENC)
+                prefs.remove(Keys.NEW_API_ADMIN_TOKEN_ENC)
+                prefs.remove(Keys.NEW_API_ADMIN_USER_ID)
                 prefs.clearWidgetPayload(PlatformIds.NEW_API)
                 prefs[widgetStatusKey(PlatformIds.NEW_API)] = Status.NOT_CONFIGURED
             } else {
                 prefs[Keys.NEW_API_BASE_URL] = settings.baseUrl.trim().trimEnd('/')
-                prefs[Keys.NEW_API_KEY_ENC] = encrypt(settings.apiKey, NEW_API_KEY_AD)
-                val status = prefs[widgetStatusKey(PlatformIds.NEW_API)]
-                if (status == null ||
-                    status == Status.NOT_CONFIGURED ||
-                    status == Status.NEEDS_REAUTH
-                ) {
-                    prefs[widgetStatusKey(PlatformIds.NEW_API)] = Status.LOADING
-                }
+                prefs[Keys.NEW_API_ADMIN_TOKEN_ENC] = encrypt(
+                    settings.adminToken,
+                    NEW_API_ADMIN_TOKEN_AD,
+                )
+                prefs[Keys.NEW_API_ADMIN_USER_ID] = settings.adminUserId.trim()
             }
-            prefs[Keys.NEW_API_USAGE_DISPLAY] = settings.usageDisplayMode.name
-            prefs[Keys.NEW_API_USAGE_PROGRESS_STYLE] = settings.usageProgressStyle.name
-            prefs[Keys.NEW_API_QUOTA_PER_USD] = settings.quotaPerUsd.takeIf { it > 0L }
-                ?: DEFAULT_NEW_API_QUOTA_PER_USD
         }
     }
 
     override suspend fun clearNewApiSettings() {
-        val current = getNewApiSettings()
-        saveNewApiSettings(
-            NewApiSettings(
-                quotaPerUsd = current.quotaPerUsd,
+        saveNewApiSettings(NewApiSettings())
+    }
+
+    override fun observeZhipuSettings(): Flow<ZhipuSettings> =
+        dataStore.data.map { prefs -> prefs.toZhipuSettings() }
+
+    override suspend fun getZhipuSettings(): ZhipuSettings =
+        dataStore.data.first().toZhipuSettings()
+
+    override suspend fun saveZhipuSettings(settings: ZhipuSettings) {
+        dataStore.edit { prefs ->
+            if (settings.apiKey.isBlank()) {
+                prefs.remove(Keys.ZHIPU_API_KEY_ENC)
+                prefs.clearWidgetPayload(PlatformIds.ZHIPU)
+                prefs[widgetStatusKey(PlatformIds.ZHIPU)] = Status.NOT_CONFIGURED
+            } else {
+                prefs[Keys.ZHIPU_API_KEY_ENC] = encrypt(settings.apiKey, ZHIPU_API_KEY_AD)
+                val status = prefs[widgetStatusKey(PlatformIds.ZHIPU)]
+                if (status == null || status == Status.NOT_CONFIGURED) {
+                    prefs[widgetStatusKey(PlatformIds.ZHIPU)] = Status.LOADING
+                }
+            }
+            prefs[Keys.ZHIPU_WIDGET_WINDOW] = settings.widgetWindowKind.name
+            prefs[Keys.ZHIPU_USAGE_DISPLAY] = settings.usageDisplayMode.name
+            prefs[Keys.ZHIPU_USAGE_PROGRESS_STYLE] = settings.usageProgressStyle.name
+        }
+    }
+
+    override suspend fun clearZhipuSettings() {
+        val current = getZhipuSettings()
+        saveZhipuSettings(
+            ZhipuSettings(
+                widgetWindowKind = current.widgetWindowKind,
+                usageDisplayMode = current.usageDisplayMode,
+                usageProgressStyle = current.usageProgressStyle,
+            ),
+        )
+    }
+
+    override suspend fun saveNewApiAdminStats(stats: NewApiAdminStats) {
+        dataStore.edit { prefs ->
+            prefs[Keys.NEW_API_ADMIN_TOKENS_DAY] = stats.tokensDay
+            prefs[Keys.NEW_API_ADMIN_TOKENS_MONTH] = stats.tokensMonth
+            prefs[Keys.NEW_API_ADMIN_REQUESTS_DAY] = stats.requestsDay
+            prefs[Keys.NEW_API_ADMIN_REQUESTS_MONTH] = stats.requestsMonth
+            prefs[Keys.NEW_API_ADMIN_RPM] = stats.rpm
+            prefs[Keys.NEW_API_ADMIN_TPM] = stats.tpm
+            prefs[Keys.NEW_API_ADMIN_UPDATED_AT] = stats.updatedAtEpochMs
+            prefs[Keys.NEW_API_ADMIN_DAY_SERIES] = stats.daySeries.joinToString(",")
+            prefs[Keys.NEW_API_ADMIN_MONTH_SERIES] = stats.monthSeries.joinToString(",")
+        }
+    }
+
+    override suspend fun getNewApiAdminStats(): NewApiAdminStats? {
+        val prefs = dataStore.data.first()
+        return prefs.toNewApiAdminStats()
+    }
+
+    override fun observeNewApiAdminStats(): Flow<NewApiAdminStats?> =
+        dataStore.data.map { prefs -> prefs.toNewApiAdminStats() }
+
+    private fun Preferences.toNewApiAdminStats(): NewApiAdminStats? {
+        val updatedAt = this[Keys.NEW_API_ADMIN_UPDATED_AT] ?: return null
+        if (updatedAt <= 0L) return null
+        return NewApiAdminStats(
+            tokensDay = this[Keys.NEW_API_ADMIN_TOKENS_DAY] ?: 0L,
+            tokensMonth = this[Keys.NEW_API_ADMIN_TOKENS_MONTH] ?: 0L,
+            requestsDay = this[Keys.NEW_API_ADMIN_REQUESTS_DAY] ?: 0L,
+            requestsMonth = this[Keys.NEW_API_ADMIN_REQUESTS_MONTH] ?: 0L,
+            rpm = this[Keys.NEW_API_ADMIN_RPM] ?: 0L,
+            tpm = this[Keys.NEW_API_ADMIN_TPM] ?: 0L,
+            daySeries = parseSeries(this[Keys.NEW_API_ADMIN_DAY_SERIES]),
+            monthSeries = parseSeries(this[Keys.NEW_API_ADMIN_MONTH_SERIES]),
+            updatedAtEpochMs = updatedAt,
+        )
+    }
+
+    private fun parseSeries(joined: String?): List<Long> =
+        joined?.takeIf { it.isNotBlank() }
+            ?.split(',')
+            ?.mapNotNull { it.trim().toLongOrNull() }
+            .orEmpty()
+
+    override fun observeNewApiSubscriptionSettings(): Flow<NewApiSubscriptionSettings> =
+        dataStore.data.map { prefs -> prefs.toNewApiSubscriptionSettings() }
+
+    override suspend fun getNewApiSubscriptionSettings(): NewApiSubscriptionSettings =
+        dataStore.data.first().toNewApiSubscriptionSettings()
+
+    override suspend fun saveNewApiSubscriptionSettings(settings: NewApiSubscriptionSettings) {
+        dataStore.edit { prefs ->
+            if (!settings.isConfigured) {
+                prefs.remove(Keys.NEW_API_SUB_BASE_URL)
+                prefs.remove(Keys.NEW_API_SUB_ACCESS_TOKEN_ENC)
+                prefs.remove(Keys.NEW_API_SUB_USER_ID)
+                prefs.clearWidgetPayload(PlatformIds.NEW_API_SUBSCRIPTION)
+                prefs[widgetStatusKey(PlatformIds.NEW_API_SUBSCRIPTION)] = Status.NOT_CONFIGURED
+            } else {
+                prefs[Keys.NEW_API_SUB_BASE_URL] = settings.baseUrl.trim().trimEnd('/')
+                prefs[Keys.NEW_API_SUB_ACCESS_TOKEN_ENC] = encrypt(
+                    settings.accessToken,
+                    NEW_API_SUB_ACCESS_TOKEN_AD,
+                )
+                prefs[Keys.NEW_API_SUB_USER_ID] = settings.userId.trim()
+                val status = prefs[widgetStatusKey(PlatformIds.NEW_API_SUBSCRIPTION)]
+                if (status == null ||
+                    status == Status.NOT_CONFIGURED ||
+                    status == Status.NEEDS_REAUTH
+                ) {
+                    prefs[widgetStatusKey(PlatformIds.NEW_API_SUBSCRIPTION)] = Status.LOADING
+                }
+            }
+            prefs[Keys.NEW_API_SUB_USAGE_DISPLAY] = settings.usageDisplayMode.name
+            prefs[Keys.NEW_API_SUB_USAGE_PROGRESS_STYLE] = settings.usageProgressStyle.name
+        }
+    }
+
+    override suspend fun clearNewApiSubscriptionSettings() {
+        val current = getNewApiSubscriptionSettings()
+        saveNewApiSubscriptionSettings(
+            NewApiSubscriptionSettings(
                 usageDisplayMode = current.usageDisplayMode,
                 usageProgressStyle = current.usageProgressStyle,
             ),
@@ -321,12 +434,14 @@ class AndroidPlatformSettingsRepository(
 
     override suspend fun clearAllRefreshIconPhases() {
         dataStore.edit { prefs ->
-            for (platformId in listOf(
-                PlatformIds.DEEPSEEK,
-                PlatformIds.OPENCODE_GO,
-                PlatformIds.CODEX,
-                PlatformIds.NEW_API,
-            )) {
+        for (platformId in listOf(
+            PlatformIds.DEEPSEEK,
+            PlatformIds.OPENCODE_GO,
+            PlatformIds.CODEX,
+            PlatformIds.NEW_API,
+            PlatformIds.ZHIPU,
+            PlatformIds.NEW_API_SUBSCRIPTION,
+        )) {
                 prefs[refreshPhaseKey(platformId)] = RefreshIconPhase.Idle.name
             }
             prefs.remove(Keys.LEGACY_REFRESH_ICON_PHASE)
@@ -377,6 +492,7 @@ class AndroidPlatformSettingsRepository(
             prefs[Keys.CUSTOM_SEED_COLOR_ARGB] = settings.customSeedColorArgb
             prefs[Keys.REFRESH_INTERVAL_MINUTES] = settings.refreshIntervalMinutes
             prefs[Keys.CHECK_FOR_UPDATES_ON_LAUNCH] = settings.checkForUpdatesOnLaunch
+            prefs[Keys.PLATFORM_VISIBILITY] = settings.hiddenPlatforms.toSet()
         }
     }
 
@@ -389,6 +505,7 @@ class AndroidPlatformSettingsRepository(
             refreshIntervalMinutes = interval.takeIf { it in ALLOWED_REFRESH_INTERVAL_MINUTES }
                 ?: DEFAULT_REFRESH_INTERVAL_MINUTES,
             checkForUpdatesOnLaunch = this[Keys.CHECK_FOR_UPDATES_ON_LAUNCH] ?: true,
+            hiddenPlatforms = this[Keys.PLATFORM_VISIBILITY].orEmpty(),
         )
     }
 
@@ -440,20 +557,44 @@ class AndroidPlatformSettingsRepository(
     }
 
     private fun Preferences.toNewApiSettings(): NewApiSettings {
-        val encrypted = this[Keys.NEW_API_KEY_ENC]
-        val apiKey = encrypted
-            ?.let { runCatching { decrypt(it, NEW_API_KEY_AD) }.getOrDefault("") }
+        val adminEncrypted = this[Keys.NEW_API_ADMIN_TOKEN_ENC]
+        val adminToken = adminEncrypted
+            ?.let { runCatching { decrypt(it, NEW_API_ADMIN_TOKEN_AD) }.getOrDefault("") }
             .orEmpty()
-        val quotaPerUsd = this[Keys.NEW_API_QUOTA_PER_USD]
-            ?.takeIf { it > 0L }
-            ?: DEFAULT_NEW_API_QUOTA_PER_USD
         return NewApiSettings(
             baseUrl = this[Keys.NEW_API_BASE_URL].orEmpty(),
+            adminToken = adminToken,
+            adminUserId = this[Keys.NEW_API_ADMIN_USER_ID].orEmpty(),
+        )
+    }
+
+    private fun Preferences.toZhipuSettings(): ZhipuSettings {
+        val encrypted = this[Keys.ZHIPU_API_KEY_ENC]
+        val apiKey = encrypted
+            ?.let { runCatching { decrypt(it, ZHIPU_API_KEY_AD) }.getOrDefault("") }
+            .orEmpty()
+        return ZhipuSettings(
             apiKey = apiKey,
-            quotaPerUsd = quotaPerUsd,
-            usageDisplayMode = UsageDisplayMode.fromStorage(this[Keys.NEW_API_USAGE_DISPLAY]),
+            widgetWindowKind = UsageWindowKind.fromStorage(this[Keys.ZHIPU_WIDGET_WINDOW]),
+            usageDisplayMode = UsageDisplayMode.fromStorage(this[Keys.ZHIPU_USAGE_DISPLAY]),
             usageProgressStyle = UsageProgressStyle.fromStorage(
-                this[Keys.NEW_API_USAGE_PROGRESS_STYLE],
+                this[Keys.ZHIPU_USAGE_PROGRESS_STYLE],
+            ),
+        )
+    }
+
+    private fun Preferences.toNewApiSubscriptionSettings(): NewApiSubscriptionSettings {
+        val encrypted = this[Keys.NEW_API_SUB_ACCESS_TOKEN_ENC]
+        val accessToken = encrypted
+            ?.let { runCatching { decrypt(it, NEW_API_SUB_ACCESS_TOKEN_AD) }.getOrDefault("") }
+            .orEmpty()
+        return NewApiSubscriptionSettings(
+            baseUrl = this[Keys.NEW_API_SUB_BASE_URL].orEmpty(),
+            accessToken = accessToken,
+            userId = this[Keys.NEW_API_SUB_USER_ID].orEmpty(),
+            usageDisplayMode = UsageDisplayMode.fromStorage(this[Keys.NEW_API_SUB_USAGE_DISPLAY]),
+            usageProgressStyle = UsageProgressStyle.fromStorage(
+                this[Keys.NEW_API_SUB_USAGE_PROGRESS_STYLE],
             ),
         )
     }
@@ -464,6 +605,8 @@ class AndroidPlatformSettingsRepository(
             PlatformIds.OPENCODE_GO -> toOpenCodeGoSettings().isConfigured
             PlatformIds.CODEX -> toCodexSettings().isConfigured
             PlatformIds.NEW_API -> toNewApiSettings().isConfigured
+            PlatformIds.ZHIPU -> toZhipuSettings().isConfigured
+            PlatformIds.NEW_API_SUBSCRIPTION -> toNewApiSubscriptionSettings().isConfigured
             else -> false
         }
 
@@ -610,10 +753,27 @@ class AndroidPlatformSettingsRepository(
         val CODEX_USAGE_DISPLAY = stringPreferencesKey("codex_usage_display")
         val CODEX_USAGE_PROGRESS_STYLE = stringPreferencesKey("codex_usage_progress_style")
         val NEW_API_BASE_URL = stringPreferencesKey("new_api_base_url")
-        val NEW_API_KEY_ENC = stringPreferencesKey("new_api_key_enc")
-        val NEW_API_QUOTA_PER_USD = longPreferencesKey("new_api_quota_per_usd")
-        val NEW_API_USAGE_DISPLAY = stringPreferencesKey("new_api_usage_display")
-        val NEW_API_USAGE_PROGRESS_STYLE = stringPreferencesKey("new_api_usage_progress_style")
+        val ZHIPU_API_KEY_ENC = stringPreferencesKey("zhipu_api_key_enc")
+        val ZHIPU_WIDGET_WINDOW = stringPreferencesKey("zhipu_widget_window")
+        val ZHIPU_USAGE_DISPLAY = stringPreferencesKey("zhipu_usage_display")
+        val ZHIPU_USAGE_PROGRESS_STYLE = stringPreferencesKey("zhipu_usage_progress_style")
+        val NEW_API_ADMIN_TOKEN_ENC = stringPreferencesKey("new_api_admin_token_enc")
+        val NEW_API_ADMIN_USER_ID = stringPreferencesKey("new_api_admin_user_id")
+        val NEW_API_ADMIN_TOKENS_DAY = longPreferencesKey("new_api_admin_tokens_day")
+        val NEW_API_ADMIN_TOKENS_MONTH = longPreferencesKey("new_api_admin_tokens_month")
+        val NEW_API_ADMIN_REQUESTS_DAY = longPreferencesKey("new_api_admin_requests_day")
+        val NEW_API_ADMIN_REQUESTS_MONTH = longPreferencesKey("new_api_admin_requests_month")
+        val NEW_API_ADMIN_RPM = longPreferencesKey("new_api_admin_rpm")
+        val NEW_API_ADMIN_TPM = longPreferencesKey("new_api_admin_tpm")
+        val NEW_API_ADMIN_UPDATED_AT = longPreferencesKey("new_api_admin_updated_at")
+        val NEW_API_ADMIN_DAY_SERIES = stringPreferencesKey("new_api_admin_day_series")
+        val NEW_API_ADMIN_MONTH_SERIES = stringPreferencesKey("new_api_admin_month_series")
+        val NEW_API_SUB_BASE_URL = stringPreferencesKey("newapi_sub_base_url")
+        val NEW_API_SUB_ACCESS_TOKEN_ENC = stringPreferencesKey("newapi_sub_access_token_enc")
+        val NEW_API_SUB_USER_ID = stringPreferencesKey("newapi_sub_user_id")
+        val NEW_API_SUB_USAGE_DISPLAY = stringPreferencesKey("newapi_sub_usage_display")
+        val NEW_API_SUB_USAGE_PROGRESS_STYLE =
+            stringPreferencesKey("newapi_sub_usage_progress_style")
         val ACTIVE_PLATFORM_ID = stringPreferencesKey("active_platform_id")
         val LEGACY_WIDGET_STATUS = stringPreferencesKey("widget_status")
         val LEGACY_WIDGET_ERROR = stringPreferencesKey("widget_error")
@@ -633,6 +793,7 @@ class AndroidPlatformSettingsRepository(
         val CUSTOM_SEED_COLOR_ARGB = intPreferencesKey("custom_seed_color_argb")
         val REFRESH_INTERVAL_MINUTES = intPreferencesKey("refresh_interval_minutes")
         val CHECK_FOR_UPDATES_ON_LAUNCH = booleanPreferencesKey("check_for_updates_on_launch")
+        val PLATFORM_VISIBILITY = stringSetPreferencesKey("platform_visibility")
         val UPDATE_IGNORED_VERSION = stringPreferencesKey("update_ignored_version")
     }
 
@@ -650,7 +811,9 @@ class AndroidPlatformSettingsRepository(
         private val CODEX_ACCESS_AD = "codex_access_token".encodeToByteArray()
         private val CODEX_REFRESH_AD = "codex_refresh_token".encodeToByteArray()
         private val CODEX_ID_AD = "codex_id_token".encodeToByteArray()
-        private val NEW_API_KEY_AD = "new_api_key".encodeToByteArray()
+        private val ZHIPU_API_KEY_AD = "zhipu_api_key".encodeToByteArray()
+        private val NEW_API_ADMIN_TOKEN_AD = "new_api_admin_token".encodeToByteArray()
+        private val NEW_API_SUB_ACCESS_TOKEN_AD = "newapi_sub_access_token".encodeToByteArray()
 
         private fun widgetStatusKey(platformId: String) =
             stringPreferencesKey("widget_${platformId}_status")

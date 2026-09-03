@@ -14,6 +14,8 @@ object PlatformIds {
     const val OPENCODE_GO = "opencode_go"
     const val CODEX = "codex"
     const val NEW_API = "new_api"
+    const val ZHIPU = "zhipu"
+    const val NEW_API_SUBSCRIPTION = "newapi_subscription"
 }
 
 object PlatformRegistry {
@@ -32,7 +34,15 @@ object PlatformRegistry {
         },
         object : QuotaPlatform {
             override val id = PlatformIds.NEW_API
-            override val displayName = "NewAPI"
+            override val displayName = "NewAPI 管理"
+        },
+        object : QuotaPlatform {
+            override val id = PlatformIds.ZHIPU
+            override val displayName = "智谱"
+        },
+        object : QuotaPlatform {
+            override val id = PlatformIds.NEW_API_SUBSCRIPTION
+            override val displayName = "NewAPI 订阅"
         },
     )
 

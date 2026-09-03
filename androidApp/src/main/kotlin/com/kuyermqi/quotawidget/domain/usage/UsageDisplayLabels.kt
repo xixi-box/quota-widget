@@ -13,6 +13,7 @@ fun usageWindowLabelRes(
         QuotaWindowKind.WEEKLY -> R.string.usage_window_weekly
         QuotaWindowKind.MONTHLY -> R.string.usage_window_monthly
         QuotaWindowKind.TOKEN -> R.string.usage_window_token
+        QuotaWindowKind.SUBSCRIPTION -> R.string.usage_window_subscription
         QuotaWindowKind.BALANCE -> R.string.usage_window_rolling
     }
     UsageDisplayMode.REMAINING -> when (kind) {
@@ -20,6 +21,7 @@ fun usageWindowLabelRes(
         QuotaWindowKind.WEEKLY -> R.string.usage_window_weekly_remaining
         QuotaWindowKind.MONTHLY -> R.string.usage_window_monthly_remaining
         QuotaWindowKind.TOKEN -> R.string.usage_window_token_remaining
+        QuotaWindowKind.SUBSCRIPTION -> R.string.usage_window_subscription_remaining
         QuotaWindowKind.BALANCE -> R.string.usage_window_rolling_remaining
     }
 }

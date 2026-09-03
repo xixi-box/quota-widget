@@ -2,6 +2,7 @@ package com.kuyermqi.quotawidget.settings
 
 import com.kuyermqi.quotawidget.domain.AppSettings
 import com.kuyermqi.quotawidget.domain.CurrencyPreference
+import com.kuyermqi.quotawidget.domain.NewApiAdminStats
 import com.kuyermqi.quotawidget.domain.UsageDisplayMode
 import com.kuyermqi.quotawidget.domain.UsageProgressStyle
 import com.kuyermqi.quotawidget.domain.UsageWindowKind
@@ -47,14 +48,38 @@ data class CodexSettings(
 
 data class NewApiSettings(
     val baseUrl: String = "",
+    /** Admin system access token: unlocks platform-wide usage stats. */
+    val adminToken: String = "",
+    /** Admin user id sent as the required `New-Api-User` header. */
+    val adminUserId: String = "",
+) {
+    val isConfigured: Boolean
+        get() = baseUrl.isNotBlank() && isAdminConfigured
+
+    val isAdminConfigured: Boolean
+        get() = adminToken.isNotBlank() && adminUserId.isNotBlank()
+}
+
+data class ZhipuSettings(
     val apiKey: String = "",
-    /** Quota points that equal 1 USD. Default matches NewAPI convention (500000:1). */
-    val quotaPerUsd: Long = DEFAULT_NEW_API_QUOTA_PER_USD,
+    val widgetWindowKind: UsageWindowKind = UsageWindowKind.ROLLING,
     val usageDisplayMode: UsageDisplayMode = UsageDisplayMode.USED,
     val usageProgressStyle: UsageProgressStyle = UsageProgressStyle.BAR,
 ) {
     val isConfigured: Boolean
-        get() = baseUrl.isNotBlank() && apiKey.isNotBlank()
+        get() = apiKey.isNotBlank()
+}
+
+data class NewApiSubscriptionSettings(
+    val baseUrl: String = "",
+    /** User system access token (console → personal settings), NOT the sk- key. */
+    val accessToken: String = "",
+    val userId: String = "",
+    val usageDisplayMode: UsageDisplayMode = UsageDisplayMode.USED,
+    val usageProgressStyle: UsageProgressStyle = UsageProgressStyle.BAR,
+) {
+    val isConfigured: Boolean
+        get() = baseUrl.isNotBlank() && accessToken.isNotBlank() && userId.isNotBlank()
 }
 
 /** NewAPI common default: 500_000 quota = 1 USD. */
@@ -79,6 +104,20 @@ interface PlatformSettingsRepository {
     suspend fun getNewApiSettings(): NewApiSettings
     suspend fun saveNewApiSettings(settings: NewApiSettings)
     suspend fun clearNewApiSettings()
+
+    fun observeZhipuSettings(): Flow<ZhipuSettings>
+    suspend fun getZhipuSettings(): ZhipuSettings
+    suspend fun saveZhipuSettings(settings: ZhipuSettings)
+    suspend fun clearZhipuSettings()
+
+    fun observeNewApiSubscriptionSettings(): Flow<NewApiSubscriptionSettings>
+    suspend fun getNewApiSubscriptionSettings(): NewApiSubscriptionSettings
+    suspend fun saveNewApiSubscriptionSettings(settings: NewApiSubscriptionSettings)
+    suspend fun clearNewApiSubscriptionSettings()
+
+    suspend fun saveNewApiAdminStats(stats: NewApiAdminStats)
+    suspend fun getNewApiAdminStats(): NewApiAdminStats?
+    fun observeNewApiAdminStats(): Flow<NewApiAdminStats?>
 
     fun observeWidgetState(platformId: String): Flow<WidgetDisplayState>
     suspend fun getWidgetState(platformId: String): WidgetDisplayState

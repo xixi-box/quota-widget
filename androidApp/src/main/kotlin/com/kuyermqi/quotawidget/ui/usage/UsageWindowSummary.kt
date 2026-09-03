@@ -28,10 +28,10 @@ fun formatUsageWindowSummary(
 }
 
 /**
- * Codex home-list summary: if [windowKind] has no data, fall back to the smallest
- * available window (e.g. free plan monthly-only).
+ * Home-list usage summary: if [windowKind] has no data, fall back to the smallest
+ * available window. Codex and Zhipu use this.
  */
-fun formatCodexUsageWindowSummary(
+fun formatUsageWindowSummaryWithFallback(
     resources: Resources,
     windows: List<QuotaWindow>,
     windowKind: UsageWindowKind,
@@ -48,6 +48,23 @@ fun formatCodexUsageWindowSummary(
     )
 }
 
+/** Codex home-list summary: if [windowKind] has no data, fall back to the smallest
+ * available window (e.g. free plan monthly-only).
+ */
+fun formatCodexUsageWindowSummary(
+    resources: Resources,
+    windows: List<QuotaWindow>,
+    windowKind: UsageWindowKind,
+    usageDisplayMode: UsageDisplayMode,
+    fallback: String,
+): String = formatUsageWindowSummaryWithFallback(
+    resources = resources,
+    windows = windows,
+    windowKind = windowKind,
+    usageDisplayMode = usageDisplayMode,
+    fallback = fallback,
+)
+
 private fun usageSummaryStringRes(
     kind: UsageWindowKind,
     mode: UsageDisplayMode,
@@ -57,11 +74,13 @@ private fun usageSummaryStringRes(
         UsageWindowKind.WEEKLY -> R.string.usage_used_weekly
         UsageWindowKind.MONTHLY -> R.string.usage_used_monthly
         UsageWindowKind.TOKEN -> R.string.usage_used_token
+        UsageWindowKind.SUBSCRIPTION -> R.string.usage_used_subscription
     }
     UsageDisplayMode.REMAINING -> when (kind) {
         UsageWindowKind.ROLLING -> R.string.usage_remaining_rolling
         UsageWindowKind.WEEKLY -> R.string.usage_remaining_weekly
         UsageWindowKind.MONTHLY -> R.string.usage_remaining_monthly
         UsageWindowKind.TOKEN -> R.string.usage_remaining_token
+        UsageWindowKind.SUBSCRIPTION -> R.string.usage_remaining_subscription
     }
 }

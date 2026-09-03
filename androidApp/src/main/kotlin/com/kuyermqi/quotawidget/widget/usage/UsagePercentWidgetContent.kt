@@ -27,12 +27,7 @@ import com.kuyermqi.quotawidget.domain.UsageDisplayMode
 import com.kuyermqi.quotawidget.domain.UsageProgressStyle
 import com.kuyermqi.quotawidget.domain.UsageWindowKind
 import com.kuyermqi.quotawidget.domain.WidgetDisplayState
-import com.kuyermqi.quotawidget.domain.formatNewApiUsageWidgetTitle
-import com.kuyermqi.quotawidget.domain.formatNewApiWidgetFooter
 import com.kuyermqi.quotawidget.domain.formatUsageDisplayPercent
-import com.kuyermqi.quotawidget.domain.newApiUsageProgressDisplayMode
-import com.kuyermqi.quotawidget.domain.newApiUsageProgressUsedPercent
-import com.kuyermqi.quotawidget.domain.newApiUsageWidgetShowsProgress
 import com.kuyermqi.quotawidget.domain.resolveCodexUsageSummaryWindowKind
 import com.kuyermqi.quotawidget.platform.PlatformIds
 import com.kuyermqi.quotawidget.widget.BalanceBlock
@@ -132,6 +127,7 @@ internal fun UsagePercentSuccessBlock(
     openApp: Action,
     showProgress: Boolean,
     compact: Boolean = false,
+    scale: Float = 1f,
 ) {
     val effectiveWindowKind = if (snapshot.platformId == PlatformIds.CODEX) {
         resolveCodexUsageSummaryWindowKind(snapshot.windows, windowKind) ?: windowKind
@@ -141,52 +137,34 @@ internal fun UsagePercentSuccessBlock(
     val used = snapshot.windows
         .find { it.kind == effectiveWindowKind.toQuotaWindowKind() }
         ?.usedPercent
-    val usageText = when {
-        snapshot.platformId == PlatformIds.NEW_API ->
-            formatNewApiUsageWidgetTitle(snapshot, usageDisplayMode)
-                ?: contextString(R.string.usage_unavailable)
-        used != null -> formatUsageDisplayPercent(used, usageDisplayMode)
-        else -> contextString(R.string.usage_unavailable)
-    }
-    val showUsageProgress = showProgress &&
-        if (snapshot.platformId == PlatformIds.NEW_API) {
-            newApiUsageWidgetShowsProgress(snapshot)
-        } else {
-            used != null
-        }
-    val progressUsed = if (snapshot.platformId == PlatformIds.NEW_API) {
-        newApiUsageProgressUsedPercent(snapshot, usageDisplayMode)
-    } else {
-        used
-    }
-    val progressMode = if (snapshot.platformId == PlatformIds.NEW_API) {
-        newApiUsageProgressDisplayMode(snapshot, usageDisplayMode)
-    } else {
-        usageDisplayMode
-    }
+    val usageText = used?.let { formatUsageDisplayPercent(it, usageDisplayMode) }
+        ?: contextString(R.string.usage_unavailable)
+    val showUsageProgress = showProgress && used != null
+    val progressUsed = used
+    val progressMode = usageDisplayMode
     Column(modifier = GlanceModifier.fillMaxWidth()) {
         Text(
             text = usageText,
             style = TextStyle(
                 color = GlanceTheme.colors.onSurface,
-                fontSize = if (compact) {
+                fontSize = (if (compact) {
                     compactBalanceTitleFontSize(usageText)
                 } else {
                     balanceTitleFontSize(usageText)
-                },
+                }) * scale,
                 fontWeight = FontWeight.Bold,
             ),
             maxLines = 1,
             modifier = GlanceModifier.clickableNoRipple(openApp),
         )
         if (showUsageProgress && progressUsed != null) {
-            Spacer(GlanceModifier.height(8.dp))
+            Spacer(GlanceModifier.height(8.dp * scale))
             when (usageProgressStyle) {
                 UsageProgressStyle.CAPSULE ->
                     UsageCapsuleProgressTrack(
                         usedPercent = progressUsed,
                         usageDisplayMode = progressMode,
-                        height = if (compact) 10.dp else 12.dp,
+                        height = (if (compact) 10.dp else 12.dp) * scale,
                     )
                 UsageProgressStyle.BAR ->
                     UsageProgressBar(
@@ -194,26 +172,17 @@ internal fun UsagePercentSuccessBlock(
                         usageDisplayMode = progressMode,
                     )
             }
-            Spacer(GlanceModifier.height(10.dp))
+            Spacer(GlanceModifier.height(10.dp * scale))
         } else {
             Spacer(GlanceModifier.height(4.dp))
         }
         val updated =
             "更新于 ${WidgetDateFormatter.formatUpdatedAt(snapshot.updatedAtEpochMs)}"
-        val footer = if (snapshot.platformId == PlatformIds.NEW_API) {
-            formatNewApiWidgetFooter(
-                snapshot = snapshot,
-                expiredLabel = contextString(R.string.new_api_token_expired),
-                updatedAtText = updated,
-            )
-        } else {
-            updated
-        }
         Text(
-            text = footer,
+            text = updated,
             style = TextStyle(
                 color = GlanceTheme.colors.onSurfaceVariant,
-                fontSize = if (compact) 11.sp else 12.sp,
+                fontSize = (if (compact) 11.sp else 12.sp) * scale,
             ),
             maxLines = 1,
             modifier = GlanceModifier.clickableNoRipple(openApp),
