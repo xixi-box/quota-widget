@@ -496,6 +496,29 @@ class AndroidPlatformSettingsRepository(
         }
     }
 
+    override fun observeFreeModelsCache(): Flow<FreeModelsCache> =
+        dataStore.data.map { prefs -> prefs.toFreeModelsCache() }
+
+    override suspend fun getFreeModelsCache(): FreeModelsCache =
+        dataStore.data.first().toFreeModelsCache()
+
+    override suspend fun saveFreeModelsCache(cache: FreeModelsCache) {
+        dataStore.edit { prefs ->
+            prefs[Keys.FREE_MODELS] = cache.models.joinToString("\n")
+            prefs[Keys.FREE_MODELS_UPDATED_AT] = cache.updatedAtEpochMs
+        }
+    }
+
+    private fun Preferences.toFreeModelsCache(): FreeModelsCache {
+        val models = this[Keys.FREE_MODELS]
+            ?.split('\n')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
+        val updatedAt = this[Keys.FREE_MODELS_UPDATED_AT] ?: 0L
+        return FreeModelsCache(models = models, updatedAtEpochMs = updatedAt)
+    }
+
     private fun Preferences.toAppSettings(): AppSettings {
         val interval = this[Keys.REFRESH_INTERVAL_MINUTES] ?: DEFAULT_REFRESH_INTERVAL_MINUTES
         return AppSettings(
@@ -794,6 +817,8 @@ class AndroidPlatformSettingsRepository(
         val REFRESH_INTERVAL_MINUTES = intPreferencesKey("refresh_interval_minutes")
         val CHECK_FOR_UPDATES_ON_LAUNCH = booleanPreferencesKey("check_for_updates_on_launch")
         val PLATFORM_VISIBILITY = stringSetPreferencesKey("platform_visibility")
+        val FREE_MODELS = stringPreferencesKey("free_models")
+        val FREE_MODELS_UPDATED_AT = longPreferencesKey("free_models_updated_at")
         val UPDATE_IGNORED_VERSION = stringPreferencesKey("update_ignored_version")
     }
 
