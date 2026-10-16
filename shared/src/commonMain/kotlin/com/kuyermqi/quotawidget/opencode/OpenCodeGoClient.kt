@@ -124,26 +124,6 @@ class OpenCodeGoClient(
         httpClient.close()
     }
 
-    /** Temporary probe: logs candidate endpoints that may hold the Go free-model list. */
-    private suspend fun probeConsoleEndpoints(cookiePair: String, orgId: String) {
-        for (path in PROBE_PATHS) {
-            val text = runCatching {
-                httpClient.get("$BASE_URL$path") {
-                    header(HttpHeaders.Cookie, cookiePair)
-                    header("x-org-id", orgId)
-                    header(HttpHeaders.Accept, "application/json")
-                    header(HttpHeaders.UserAgent, BROWSER_UA)
-                    header(HttpHeaders.Origin, BASE_URL)
-                    header(HttpHeaders.Referrer, "$BASE_URL/console/")
-                }.bodyAsText()
-            }.getOrElse { "ERR ${it.message}" }
-            log("probe $path len=${text.length}")
-            text.chunked(3000).forEachIndexed { index, part ->
-                log("probe $path[$index]=$part")
-            }
-        }
-    }
-
     /** Console org list (used to satisfy the `x-org-id` requirement). */
     suspend fun fetchConsoleOrgs(consoleCookiePair: String): String {
         val response = try {
@@ -212,14 +192,7 @@ class OpenCodeGoClient(
         val orgsBody = fetchConsoleOrgs(consoleCookiePair)
         val orgId = parseFirstOrgId(orgsBody)
             ?: throw IllegalStateException("无法获取 OpenCode 组织 ID (${orgsBody.take(120)})")
-        probeConsoleEndpoints(consoleCookiePair, orgId)
         val body = fetchConsoleGoStatus(consoleCookiePair, orgId)
-        // Temporary diagnostics: dump the whole payload in logcat-sized chunks so
-        // the free-model fields are visible (logcat truncates long lines).
-        log("goStatus len=${body.length}")
-        body.chunked(3000).forEachIndexed { index, part ->
-            log("goStatus[$index]=$part")
-        }
         val windows = parseGoStatusWindows(body)
         if (windows.isEmpty()) {
             throw IllegalStateException(
@@ -486,13 +459,6 @@ class OpenCodeGoClient(
     }
 
     companion object {
-        /** Temporary probe list for locating the Go free-model source. */
-        private val PROBE_PATHS = listOf(
-            "/console/api/providers",
-            "/console/api/usage/models?range=30d",
-            "/console/api/go/last-hour",
-        )
-
         const val BASE_URL = "https://opencode.ai"
         const val LOGIN_URL = "$BASE_URL/auth"
         private const val BROWSER_UA =
