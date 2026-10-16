@@ -20,9 +20,16 @@ class OpenCodeGoQuotaProvider(
     override suspend fun fetch(repo: PlatformSettingsRepository): QuotaSnapshot {
         val settings = repo.getOpenCodeGoSettings()
         require(settings.isConfigured) { "OpenCode Go 未登录" }
-        return client.fetchQuota(
-            workspaceId = settings.workspaceId,
-            authCookie = settings.authCookie,
-        )
+        // New console sessions carry a console_session cookie; legacy sessions
+        // carry auth=. Route accordingly.
+        val consoleSession = OpenCodeGoClient.extractConsoleSession(settings.authCookie)
+        return if (consoleSession != null) {
+            client.fetchConsoleQuota(consoleSession)
+        } else {
+            client.fetchQuota(
+                workspaceId = settings.workspaceId,
+                authCookie = settings.authCookie,
+            )
+        }
     }
 }

@@ -2,6 +2,8 @@ package com.kuyermqi.quotawidget.opencode
 
 import com.kuyermqi.quotawidget.deepseek.createHttpClient
 import com.kuyermqi.quotawidget.domain.QuotaSnapshot
+import com.kuyermqi.quotawidget.domain.QuotaWindow
+import com.kuyermqi.quotawidget.domain.QuotaWindowKind
 import com.kuyermqi.quotawidget.domain.SessionExpiredException
 import com.kuyermqi.quotawidget.domain.formatUsagePrimaryDisplay
 import com.kuyermqi.quotawidget.domain.formatUsageRemainingRolling
@@ -20,6 +22,12 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 class OpenCodeGoClient(
     private val httpClient: HttpClient = createHttpClient(),
@@ -115,6 +123,124 @@ class OpenCodeGoClient(
     fun close() {
         httpClient.close()
     }
+
+    /** Temporary probe: logs candidate endpoints that may hold the Go free-model list. */
+    private suspend fun probeConsoleEndpoints(cookiePair: String, orgId: String) {
+        for (path in PROBE_PATHS) {
+            val text = runCatching {
+                httpClient.get("$BASE_URL$path") {
+                    header(HttpHeaders.Cookie, cookiePair)
+                    header("x-org-id", orgId)
+                    header(HttpHeaders.Accept, "application/json")
+                    header(HttpHeaders.UserAgent, BROWSER_UA)
+                    header(HttpHeaders.Origin, BASE_URL)
+                    header(HttpHeaders.Referrer, "$BASE_URL/console/")
+                }.bodyAsText()
+            }.getOrElse { "ERR ${it.message}" }
+            log("probe $path len=${text.length}")
+            text.chunked(3000).forEachIndexed { index, part ->
+                log("probe $path[$index]=$part")
+            }
+        }
+    }
+
+    /** Console org list (used to satisfy the `x-org-id` requirement). */
+    suspend fun fetchConsoleOrgs(consoleCookiePair: String): String {
+        val response = try {
+            httpClient.get("$BASE_URL/console/api/orgs") {
+                header(HttpHeaders.Cookie, consoleCookiePair)
+                header(HttpHeaders.Accept, "application/json")
+                header(HttpHeaders.UserAgent, BROWSER_UA)
+                header(HttpHeaders.Origin, BASE_URL)
+                header(HttpHeaders.Referrer, "$BASE_URL/console/")
+            }
+        } catch (e: ClientRequestException) {
+            when (e.response.status) {
+                HttpStatusCode.Unauthorized,
+                HttpStatusCode.Forbidden,
+                -> throw SessionExpiredException("OpenCode 会话已失效")
+                else -> throw e
+            }
+        }
+        if (response.status == HttpStatusCode.Unauthorized ||
+            response.status == HttpStatusCode.Forbidden
+        ) {
+            throw SessionExpiredException("OpenCode 会话已失效")
+        }
+        return response.bodyAsText()
+    }
+
+    /**
+     * New console API: Go plan status. Provides rolling / weekly / monthly
+     * used percentages. [consoleCookiePair] must be the full `name=value` pair —
+     * `__Host-` prefixed cookies are rejected when sent under a different name.
+     * The endpoint additionally requires the `x-org-id` header.
+     */
+    suspend fun fetchConsoleGoStatus(
+        consoleCookiePair: String,
+        orgId: String,
+    ): String {
+        val response = try {
+            httpClient.get("$BASE_URL/console/api/go/status") {
+                header(HttpHeaders.Cookie, consoleCookiePair)
+                header("x-org-id", orgId)
+                header(HttpHeaders.Accept, "application/json")
+                header(HttpHeaders.UserAgent, BROWSER_UA)
+                // Cookie-authenticated console requests are same-origin checked.
+                header(HttpHeaders.Origin, BASE_URL)
+                header(HttpHeaders.Referrer, "$BASE_URL/console/")
+            }
+        } catch (e: ClientRequestException) {
+            when (e.response.status) {
+                HttpStatusCode.Unauthorized,
+                HttpStatusCode.Forbidden,
+                -> throw SessionExpiredException("OpenCode 会话已失效")
+                else -> throw e
+            }
+        }
+        when (response.status) {
+            HttpStatusCode.Unauthorized,
+            HttpStatusCode.Forbidden,
+            -> throw SessionExpiredException("OpenCode 会话已失效")
+            else -> Unit
+        }
+        return response.bodyAsText()
+    }
+
+    /** Console Go quota → QuotaSnapshot (rolling / weekly / monthly percentages). */
+    suspend fun fetchConsoleQuota(consoleCookiePair: String): QuotaSnapshot {
+        val orgsBody = fetchConsoleOrgs(consoleCookiePair)
+        val orgId = parseFirstOrgId(orgsBody)
+            ?: throw IllegalStateException("无法获取 OpenCode 组织 ID (${orgsBody.take(120)})")
+        probeConsoleEndpoints(consoleCookiePair, orgId)
+        val body = fetchConsoleGoStatus(consoleCookiePair, orgId)
+        // Temporary diagnostics: dump the whole payload in logcat-sized chunks so
+        // the free-model fields are visible (logcat truncates long lines).
+        log("goStatus len=${body.length}")
+        body.chunked(3000).forEachIndexed { index, part ->
+            log("goStatus[$index]=$part")
+        }
+        val windows = parseGoStatusWindows(body)
+        if (windows.isEmpty()) {
+            throw IllegalStateException(
+                "无法解析 OpenCode 额度 (${body.take(160)})",
+            )
+        }
+        return QuotaSnapshot(
+            platformId = PlatformIds.OPENCODE_GO,
+            platformName = PlatformRegistry.displayName(PlatformIds.OPENCODE_GO),
+            windows = windows,
+            primaryDisplay = formatUsagePrimaryDisplay(windows),
+            updatedAtEpochMs = currentTimeMillis(),
+        )
+    }
+
+    /** New console login entry point. */
+    suspend fun fetchConsolePage(): String =
+        httpClient.get("$BASE_URL/console/") {
+            header(HttpHeaders.Accept, "text/html,application/xhtml+xml")
+            header(HttpHeaders.UserAgent, BROWSER_UA)
+        }.bodyAsText()
 
     /**
      * SolidStart `query(...)` prefers GET (`fn.GET`) with seroval-JSON args in the query string.
@@ -360,6 +486,13 @@ class OpenCodeGoClient(
     }
 
     companion object {
+        /** Temporary probe list for locating the Go free-model source. */
+        private val PROBE_PATHS = listOf(
+            "/console/api/providers",
+            "/console/api/usage/models?range=30d",
+            "/console/api/go/last-hour",
+        )
+
         const val BASE_URL = "https://opencode.ai"
         const val LOGIN_URL = "$BASE_URL/auth"
         private const val BROWSER_UA =
@@ -425,6 +558,177 @@ class OpenCodeGoClient(
 
         fun extractWorkspaceId(url: String): String? =
             WORKSPACE_PATH.find(url)?.groupValues?.getOrNull(1)
+
+        /**
+         * Full `name=value` console cookie pair (preserves the `__Host-` prefix,
+         * which the server requires verbatim), or null when absent.
+         */
+        fun extractConsoleSession(authCookieOrHeader: String?): String? {
+            if (authCookieOrHeader.isNullOrBlank()) return null
+            return authCookieOrHeader
+                .split(';')
+                .map { it.trim() }
+                .firstOrNull {
+                    it.startsWith("console_session=", ignoreCase = true) ||
+                        it.startsWith("__Host-console_session=", ignoreCase = true)
+                }
+                ?.takeIf { it.substringAfter('=').isNotBlank() }
+        }
+
+        /**
+         * Tolerant parser for `/console/api/go/status`: walks the JSON tree for
+         * objects named like a window (rolling/weekly/monthly) that carry a
+         * percent-ish numeric field. Avoids pinning the exact schema so minor
+         * upstream reshuffles keep working.
+         */
+        internal fun parseGoStatusWindows(body: String): List<QuotaWindow> {
+            val root = runCatching { parseJsonLenient(body) }.getOrNull() ?: return emptyList()
+            val found = linkedMapOf<QuotaWindowKind, QuotaWindow>()
+
+            fun windowKindOf(name: String): QuotaWindowKind? {
+                val n = name.lowercase()
+                return when {
+                    "rolling" in n || "fivehour" in n || "5h" in n ||
+                        "five_hour" in n || "last_hour" in n -> QuotaWindowKind.FIVE_HOUR
+                    "weekly" in n || "week" in n -> QuotaWindowKind.WEEKLY
+                    "monthly" in n || "month" in n -> QuotaWindowKind.MONTHLY
+                    else -> null
+                }
+            }
+
+            fun JsonObject.number(vararg keys: String): Double? {
+                for (key in keys) {
+                    val value = this[key] ?: continue
+                    val num = (value as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+                    if (num != null) return num
+                }
+                return null
+            }
+
+            fun JsonObject.percent(): Double? {
+                // Go meters: usedMicroCents / limitMicroCents (string-encoded).
+                val usedMicro = number("usedMicroCents", "used_micro_cents")
+                val limitMicro = number("limitMicroCents", "limit_micro_cents")
+                if (usedMicro != null && limitMicro != null && limitMicro > 0.0) {
+                    return (usedMicro / limitMicro * 100.0).coerceIn(0.0, 100.0)
+                }
+                val raw = number(
+                    "usedPercent", "used_percent", "percent", "percentage",
+                    "usedPercentage", "utilization", "usagePercent", "pct",
+                ) ?: return null
+                // Values expressed as a 0..1 fraction are converted to percent.
+                val looksFractional = this["usedFraction"] != null ||
+                    this["fraction"] != null ||
+                    this["ratio"] != null ||
+                    (raw in 0.0..1.0 && number("used") == raw && raw != 0.0)
+                return if (looksFractional) (raw * 100.0).coerceIn(0.0, 100.0)
+                else raw.coerceIn(0.0, 100.0)
+            }
+
+            fun JsonObject.resetInSec(nowMs: Long): Long? {
+                // ISO-8601 timestamps (Go meters) take precedence.
+                val iso = (this["resetsAt"] ?: this["resetAt"] ?: this["endsAt"])
+                    ?.let { (it as? JsonPrimitive)?.contentOrNull }
+                if (!iso.isNullOrBlank()) {
+                    isoToEpochMs(iso)?.let { return ((it - nowMs) / 1000L).coerceAtLeast(0L) }
+                }
+                val epoch = number(
+                    "resetAt", "resetsAt", "reset_at", "nextResetAt",
+                    "next_reset_time", "resetTime",
+                )
+                if (epoch != null && epoch > 1_000_000_000.0) {
+                    val epochMs = if (epoch > 1_000_000_000_000.0) epoch else epoch * 1000.0
+                    return ((epochMs - nowMs) / 1000.0).toLong().coerceAtLeast(0L)
+                }
+                val rel = number("resetInSeconds", "resetsInSeconds", "reset_in_sec", "resetsIn")
+                return rel?.toLong()?.coerceAtLeast(0L)
+            }
+
+            fun walk(node: JsonElement, parentName: String?) {
+                when (node) {
+                    is JsonObject -> {
+                        val ownKind = windowKindOf(parentName.orEmpty())
+                        if (ownKind != null && ownKind !in found) {
+                            val pct = node.percent()
+                            if (pct != null) {
+                                found[ownKind] = QuotaWindow(
+                                    kind = ownKind,
+                                    usedPercent = pct,
+                                    resetInSec = node.resetInSec(currentTimeMillis()),
+                                )
+                            }
+                        }
+                        node.forEach { (key, value) -> walk(value, key) }
+                    }
+                    is JsonArray -> node.forEach { walk(it, parentName) }
+                    else -> Unit
+                }
+            }
+
+            walk(root, null)
+            return listOfNotNull(
+                found[QuotaWindowKind.FIVE_HOUR],
+                found[QuotaWindowKind.WEEKLY],
+                found[QuotaWindowKind.MONTHLY],
+            )
+        }
+
+        /**
+         * First org id from `/console/api/orgs` in whatever envelope it arrives
+         * (bare array, `{orgs:[…]}`, `{data:[…]}`). Prefers id-like values.
+         */
+        internal fun parseFirstOrgId(body: String): String? {
+            val root = runCatching { parseJsonLenient(body) }.getOrNull() ?: return null
+            val candidates = mutableListOf<String>()
+
+            fun collect(node: JsonElement) {
+                when (node) {
+                    is JsonObject -> {
+                        for (key in listOf("id", "orgId", "org_id", "organizationId")) {
+                            val value = (node[key] as? JsonPrimitive)?.contentOrNull
+                            if (!value.isNullOrBlank()) candidates += value
+                        }
+                        node.forEach { (_, value) -> collect(value) }
+                    }
+                    is JsonArray -> node.forEach { collect(it) }
+                    else -> Unit
+                }
+            }
+            collect(root)
+            return candidates.firstOrNull { it.startsWith("org", ignoreCase = true) }
+                ?: candidates.firstOrNull()
+        }
+
+        private fun parseJsonLenient(body: String): JsonElement =
+            Json { ignoreUnknownKeys = true; isLenient = true }
+                .parseToJsonElement(body)
+
+        private val ISO_TS =
+            Regex("""(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})""")
+
+        /** Minimal ISO-8601 (UTC) → epoch millis, dependency-free. */
+        internal fun isoToEpochMs(iso: String): Long? {
+            val m = ISO_TS.find(iso) ?: return null
+            val y = m.groupValues[1].toInt()
+            val mo = m.groupValues[2].toInt()
+            val d = m.groupValues[3].toInt()
+            val hh = m.groupValues[4].toInt()
+            val mm = m.groupValues[5].toInt()
+            val ss = m.groupValues[6].toInt()
+            val days = daysFromCivil(y, mo, d)
+            return ((days * 86_400L) + hh * 3600L + mm * 60L + ss) * 1000L
+        }
+
+        /** Civil date → days since 1970-01-01 (Howard Hinnant's algorithm). */
+        private fun daysFromCivil(year: Int, month: Int, day: Int): Long {
+            val y = if (month <= 2) year - 1 else year
+            val era = (if (y >= 0) y else y - 399) / 400
+            val yoe = y - era * 400
+            val mp = (month + 9) % 12
+            val doy = (153 * mp + 2) / 5 + day - 1
+            val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+            return era * 146_097L + doe.toLong() - 719_468L
+        }
 
         fun isLoginSuccessUrl(url: String): Boolean =
             extractWorkspaceId(url) != null

@@ -44,6 +44,14 @@ class OpenCodeLoginWebViewFlow(
 
     private fun handleNavigation(view: WebView?, finishedUrl: String) {
         if (loginCompleted || view == null) return
+        // New console login: check for console_session cookie on every page load.
+        if (finishedUrl.contains("/console")) {
+            host.postDelayed(COOKIE_SETTLE_DELAY_MS) {
+                attemptConsoleCookieCapture()
+            }
+            return
+        }
+        // Legacy workspace flow (fallback for old OpenCode instances).
         val workspaceId = OpenCodeGoClient.extractWorkspaceId(finishedUrl) ?: return
         if (!finishedUrl.contains("/go")) {
             if (!goProbeStarted) {
@@ -55,6 +63,42 @@ class OpenCodeLoginWebViewFlow(
         }
         host.postDelayed(COOKIE_SETTLE_DELAY_MS) {
             attemptCookieCapture(workspaceId)
+        }
+    }
+
+    private fun attemptConsoleCookieCapture() {
+        if (host.isFinishingOrDestroyed || loginCompleted) return
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.flush()
+        val consoleSession = cookieManager.getCookie("https://opencode.ai")
+            ?.split(';')
+            ?.map { it.trim() }
+            ?.firstOrNull {
+                it.startsWith("console_session=", ignoreCase = true) ||
+                    it.startsWith("__Host-console_session=", ignoreCase = true)
+            }
+        if (consoleSession.isNullOrBlank() || consoleSession.substringAfter('=').isBlank()) {
+            // User hasn't logged in yet — DON'T close the WebView, keep waiting.
+            // They'll log in through the WebView and we'll pick up the cookie on
+            // the next page load or periodic check.
+            scheduleConsoleCookieCheck()
+            return
+        }
+        loginCompleted = true
+        Log.i(TAG, "console login complete pair=${consoleSession.substringBefore('=')}")
+        host.finishWithResult(
+            Activity.RESULT_OK,
+            Intent()
+                .putExtra(EXTRA_RESULT_WORKSPACE_ID, "console")
+                .putExtra(EXTRA_RESULT_AUTH_COOKIE, consoleSession),
+        )
+    }
+
+    /** Periodically check for the cookie while the user is in the WebView. */
+    private fun scheduleConsoleCookieCheck() {
+        if (host.isFinishingOrDestroyed || loginCompleted) return
+        host.postDelayed(CONSOLE_CHECK_INTERVAL_MS) {
+            attemptConsoleCookieCapture()
         }
     }
 
@@ -112,13 +156,16 @@ class OpenCodeLoginWebViewFlow(
         private const val COOKIE_SETTLE_DELAY_MS = 500L
         private const val COOKIE_RETRY_DELAY_MS = 600L
         private const val MAX_COOKIE_ATTEMPTS = 8
+        private const val CONSOLE_CHECK_INTERVAL_MS = 1500L
 
         fun createIntent(context: Context): Intent =
             InAppWebViewActivity.createIntent(
                 context = context,
-                url = OpenCodeGoClient.LOGIN_URL,
+                url = CONSOLE_URL,
                 title = context.getString(R.string.opencode_login_title),
                 flowId = FLOW_ID,
             )
+
+        const val CONSOLE_URL = "${OpenCodeGoClient.BASE_URL}/console/"
     }
 }
