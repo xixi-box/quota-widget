@@ -82,6 +82,15 @@ data class NewApiSubscriptionSettings(
         get() = baseUrl.isNotBlank() && accessToken.isNotBlank() && userId.isNotBlank()
 }
 
+/** Cached models.dev free-model catalog (shared by the app UI and widgets). */
+data class FreeModelsCache(
+    val models: List<String> = emptyList(),
+    val updatedAtEpochMs: Long = 0L,
+) {
+    val isEmpty: Boolean
+        get() = models.isEmpty()
+}
+
 /** NewAPI common default: 500_000 quota = 1 USD. */
 const val DEFAULT_NEW_API_QUOTA_PER_USD = 500_000L
 
@@ -145,4 +154,8 @@ interface PlatformSettingsRepository {
     fun observeAppSettings(): Flow<AppSettings>
     suspend fun getAppSettings(): AppSettings
     suspend fun saveAppSettings(settings: AppSettings)
+
+    fun observeFreeModelsCache(): Flow<FreeModelsCache>
+    suspend fun getFreeModelsCache(): FreeModelsCache
+    suspend fun saveFreeModelsCache(cache: FreeModelsCache)
 }

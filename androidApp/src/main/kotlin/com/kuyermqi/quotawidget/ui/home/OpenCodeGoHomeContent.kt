@@ -4,6 +4,12 @@ import android.app.Activity
 import android.webkit.CookieManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -30,8 +36,10 @@ import com.kuyermqi.quotawidget.domain.UsageWindowKind
 import com.kuyermqi.quotawidget.domain.WidgetDisplayState
 import com.kuyermqi.quotawidget.domain.opencode.OpenCodeLoginWebViewFlow
 import com.kuyermqi.quotawidget.opencode.OpenCodeGoClient
+import com.kuyermqi.quotawidget.modelsdev.ModelsDevClient
 import com.kuyermqi.quotawidget.opencode.OpenCodeWorkspace
 import com.kuyermqi.quotawidget.platform.PlatformIds
+import com.kuyermqi.quotawidget.settings.FreeModelsCache
 import com.kuyermqi.quotawidget.settings.OpenCodeGoSettings
 import com.kuyermqi.quotawidget.settings.PlatformSettingsRepository
 import com.kuyermqi.quotawidget.ui.components.OpenCodeGoConfigContent
@@ -69,8 +77,41 @@ class OpenCodeGoHomeState internal constructor(
         internal set
     var workspacesError by mutableStateOf<String?>(null)
         internal set
+    var freeModels by mutableStateOf<List<String>>(emptyList())
+        internal set
+    var isLoadingFreeModels by mutableStateOf(false)
+        internal set
+    var freeModelsError by mutableStateOf<String?>(null)
+        internal set
     var loaded by mutableStateOf(false)
         internal set
+
+    /**
+     * Loads the models.dev catalog when the cached copy is stale, then persists it
+     * so the free-models widget can render it too.
+     */
+    suspend fun loadFreeModelsIfStale(client: ModelsDevClient) {
+        val cached = settingsRepository.getFreeModelsCache()
+        if (freeModels.isEmpty() && cached.models.isNotEmpty()) {
+            freeModels = cached.models
+        }
+        val ageMs = System.currentTimeMillis() - cached.updatedAtEpochMs
+        val fresh = cached.models.isNotEmpty() && ageMs < FREE_MODELS_TTL_MS
+        if (fresh || isLoadingFreeModels) return
+        isLoadingFreeModels = true
+        freeModelsError = null
+        try {
+            val models = client.fetchFreeModels()
+            freeModels = models
+            settingsRepository.saveFreeModelsCache(
+                FreeModelsCache(models = models, updatedAtEpochMs = System.currentTimeMillis()),
+            )
+        } catch (e: Exception) {
+            freeModelsError = e.message
+        } finally {
+            isLoadingFreeModels = false
+        }
+    }
 
     val isConfigured: Boolean
         get() = settings.isConfigured
@@ -149,11 +190,22 @@ fun rememberOpenCodeGoHomeState(
     settingsRepository: PlatformSettingsRepository,
 ): OpenCodeGoHomeState {
     val client = remember { OpenCodeGoClient() }
+    val modelsDevClient = remember { ModelsDevClient() }
+    val context = LocalContext.current
     val state = remember(settingsRepository, client) {
         OpenCodeGoHomeState(settingsRepository, client)
     }
-    DisposableEffect(client) {
-        onDispose { client.close() }
+    // Free-model catalog is account-independent, so load it on first show.
+    LaunchedEffect(state) {
+        withContext(Dispatchers.IO) { state.loadFreeModelsIfStale(modelsDevClient) }
+        // Mirror the freshly loaded list into the widget state right away.
+        WidgetGlanceState.syncAndUpdate(context, "free_models")
+    }
+    DisposableEffect(client, modelsDevClient) {
+        onDispose {
+            client.close()
+            modelsDevClient.close()
+        }
     }
     return state
 }
@@ -207,7 +259,7 @@ fun OpenCodeGoHomeEffects(
         val authCookie = result.data
             ?.getStringExtra(OpenCodeLoginWebViewFlow.EXTRA_RESULT_AUTH_COOKIE)
             .orEmpty()
-        if (workspaceId.isBlank() || authCookie.isBlank()) {
+        if (authCookie.isBlank()) {
             state.error = msgLoginFailed
             return@rememberLauncherForActivityResult
         }
@@ -371,7 +423,56 @@ fun ColumnScope.OpenCodeGoHomeContent(
             }
         },
     )
+    FreeModelsSection(state)
 }
+
+@Composable
+private fun FreeModelsSection(state: OpenCodeGoHomeState) {
+    val title = stringResource(R.string.opencode_free_models_title)
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+        Text(
+            text = if (state.freeModels.isEmpty()) {
+                title
+            } else {
+                "$title (${state.freeModels.size})"
+            },
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        when {
+            state.isLoadingFreeModels && state.freeModels.isEmpty() -> Text(
+                text = stringResource(R.string.opencode_free_models_loading),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            state.freeModels.isNotEmpty() -> Column {
+                state.freeModels.forEach { model ->
+                    Text(
+                        text = "· $model",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.opencode_free_models_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            else -> Text(
+                text = state.freeModelsError
+                    ?: stringResource(R.string.opencode_free_models_unavailable),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** models.dev is a ~5.6MB document; refresh the cached copy weekly. */
+private const val FREE_MODELS_TTL_MS = 7L * 24L * 60L * 60L * 1000L
 
 private suspend fun clearOpenCodeSession(
     state: OpenCodeGoHomeState,
@@ -410,6 +511,14 @@ private suspend fun loadOpenCodeWorkspaces(
     if (!settings.isConfigured) {
         state.workspaces = emptyList()
         state.workspacesError = null
+        return settings
+    }
+    // Console sessions have no workspace list — the Go quota comes from the
+    // account-scoped console API instead.
+    if (OpenCodeGoClient.extractConsoleSession(settings.authCookie) != null) {
+        state.workspaces = emptyList()
+        state.workspacesError = null
+        state.isLoadingWorkspaces = false
         return settings
     }
     state.isLoadingWorkspaces = true

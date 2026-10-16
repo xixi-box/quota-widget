@@ -218,6 +218,18 @@
         </receiver>
 
         <receiver
+            android:name=".widget.OpenCodeFreeModelsWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_opencode_free_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/opencode_free_models_widget_info" />
+        </receiver>
+
+        <receiver
             android:name=".widget.DebugRefreshReceiver"
             android:exported="true">
             <intent-filter>

@@ -223,6 +223,16 @@ class FakePlatformSettingsRepository(
     }
 
     override fun observeAppSettings(): Flow<AppSettings> = appSettingsFlow.asStateFlow()
+
+    private val freeModelsFlow = MutableStateFlow(FreeModelsCache())
+
+    override fun observeFreeModelsCache(): Flow<FreeModelsCache> = freeModelsFlow.asStateFlow()
+
+    override suspend fun getFreeModelsCache(): FreeModelsCache = freeModelsFlow.value
+
+    override suspend fun saveFreeModelsCache(cache: FreeModelsCache) {
+        freeModelsFlow.value = cache
+    }
     override suspend fun getAppSettings(): AppSettings = appSettingsFlow.value
     override suspend fun saveAppSettings(settings: AppSettings) {
         appSettingsFlow.value = settings
