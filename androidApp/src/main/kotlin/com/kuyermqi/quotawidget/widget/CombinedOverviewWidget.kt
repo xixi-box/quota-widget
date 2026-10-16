@@ -315,6 +315,8 @@ private data class CombinedDimensions(
     val cardTextGap: Dp,
     val nameSize: TextUnit,
     val valueSize: TextUnit,
+    val contentScale: Float = 1f,
+    val verticalScale: Float = 1f,
 )
 
 private fun combinedDimensions(density: CombinedDensity): CombinedDimensions = when (density) {
@@ -374,13 +376,37 @@ private fun CombinedContent(
                 dimensions.rowGap.value * (rowCount - 1)
             ) / rowCount
         ).coerceAtLeast(0f).dp
-    // Continuous font scale: shrinks text proportionally when the widget is
-    // small so labels and numbers stay readable instead of being clipped.
-    val fontScale = (cardHeight.value / 80f).coerceIn(0.85f, 1f)
+    val cardWidth = (
+        (
+            size.width.value -
+                dimensions.outerHorizontal.value * 2f -
+                dimensions.columnGap.value * (layout.columns - 1)
+            ) / layout.columns
+        ).coerceAtLeast(0f)
+    // Small cards still shrink to avoid clipping. Large comfortable cards may
+    // grow, but width remains the limiting factor for labels and long metrics.
+    val shrinkScale = (cardHeight.value / 80f).coerceIn(0.85f, 1f)
+    val growthScale = if (layout.density == CombinedDensity.Comfortable) {
+        minOf(
+            (cardHeight.value / 180f).coerceIn(1f, 1.25f),
+            (cardWidth / 116f).coerceIn(1f, 1.18f),
+        )
+    } else {
+        1f
+    }
+    val contentScale = shrinkScale * growthScale
+    val verticalScale = if (layout.density == CombinedDensity.Comfortable) {
+        (cardHeight.value / 150f).coerceIn(1f, 1.5f)
+    } else {
+        1f
+    }
     val scaledDimensions = dimensions.copy(
-        nameSize = (dimensions.nameSize.value * fontScale).sp,
-        valueSize = (dimensions.valueSize.value * fontScale).sp,
-        cardTextGap = dimensions.cardTextGap * fontScale,
+        cardVertical = dimensions.cardVertical * contentScale,
+        cardTextGap = dimensions.cardTextGap * verticalScale,
+        nameSize = (dimensions.nameSize.value * contentScale).sp,
+        valueSize = (dimensions.valueSize.value * contentScale).sp,
+        contentScale = contentScale,
+        verticalScale = verticalScale,
     )
     Box(
         modifier = GlanceModifier
@@ -468,22 +494,29 @@ private fun CombinedPlatformCard(
             vertical = dimensions.cardVertical,
         )
     val hasBars = showProgress && row.windows.any { it.usedPercent != null }
+    val expanded = dimensions.contentScale > 1.01f || dimensions.verticalScale > 1.01f
     if (stacked || hasBars) {
         Column(modifier = cardModifier) {
             CombinedPlatformHeader(row, dimensions, density)
-            Spacer(modifier = GlanceModifier.height(dimensions.cardTextGap))
-            if (row.windows.isNotEmpty()) {
-                row.windows.forEach { bar ->
-                    CombinedUsageWindow(
-                        bar = bar,
-                        progressStyle = row.usageProgressStyle,
-                        showProgress = hasBars,
-                        density = density,
-                        dimensions = dimensions,
-                    )
-                }
-            } else {
-                Column {
+            Spacer(
+                modifier = if (expanded) {
+                    GlanceModifier.defaultWeight()
+                } else {
+                    GlanceModifier.height(dimensions.cardTextGap)
+                },
+            )
+            Column {
+                if (row.windows.isNotEmpty()) {
+                    row.windows.forEach { bar ->
+                        CombinedUsageWindow(
+                            bar = bar,
+                            progressStyle = row.usageProgressStyle,
+                            showProgress = hasBars,
+                            density = density,
+                            dimensions = dimensions,
+                        )
+                    }
+                } else {
                     CombinedPlatformValue(row.value, dimensions)
                     row.secondaryValue?.let { secondaryValue ->
                         Spacer(modifier = GlanceModifier.height(dimensions.cardTextGap))
@@ -495,13 +528,15 @@ private fun CombinedPlatformCard(
                     }
                 }
             }
+            if (expanded) {
+                Spacer(modifier = GlanceModifier.defaultWeight())
+            }
             if (density == CombinedDensity.Comfortable && row.updatedAtEpochMs > 0L) {
-                Spacer(modifier = GlanceModifier.height(dimensions.cardTextGap))
+                if (!expanded) {
+                    Spacer(modifier = GlanceModifier.height(dimensions.cardTextGap))
+                }
                 Text(
-                    text = LocalWidgetAndroidContext.current.getString(
-                        R.string.widget_updated_at,
-                        WidgetDateFormatter.formatUpdatedAt(row.updatedAtEpochMs),
-                    ),
+                    text = WidgetDateFormatter.formatUpdatedAt(row.updatedAtEpochMs),
                     style = TextStyle(
                         color = GlanceTheme.colors.onSurfaceVariant,
                         fontSize = (dimensions.nameSize.value * 0.85f).sp,
@@ -523,7 +558,7 @@ private fun CombinedPlatformCard(
             if (showValue) {
                 CombinedPlatformValue(row.value, dimensions)
             }
-            CombinedRefreshButton(row, density)
+            CombinedRefreshButton(row, density, dimensions.contentScale)
         }
     }
 }
@@ -538,7 +573,8 @@ private fun CombinedUsageWindow(
 ) {
     val usedPercent = bar.usedPercent ?: return
     val percentText = formatUsageDisplayPercent(usedPercent, bar.displayMode)
-    val bottomGap = if (density == CombinedDensity.Comfortable) 3.dp else 1.dp
+    val bottomGap = (if (density == CombinedDensity.Comfortable) 3.dp else 1.dp) *
+        dimensions.verticalScale
     Column(
         modifier = GlanceModifier
             .fillMaxWidth()
@@ -550,8 +586,10 @@ private fun CombinedUsageWindow(
                 percentText = percentText,
                 usedPercent = usedPercent,
                 usageDisplayMode = bar.displayMode,
-                height = if (density == CombinedDensity.Comfortable) 24.dp else 16.dp,
-                cornerRadius = if (density == CombinedDensity.Comfortable) 7.dp else 5.dp,
+                height = (if (density == CombinedDensity.Comfortable) 24.dp else 16.dp) *
+                    dimensions.contentScale,
+                cornerRadius = (if (density == CombinedDensity.Comfortable) 7.dp else 5.dp) *
+                    dimensions.contentScale,
                 labelSize = dimensions.nameSize,
                 percentSize = dimensions.valueSize,
             )
@@ -596,22 +634,26 @@ private fun CombinedPlatformHeader(
             dimensions = dimensions,
             modifier = GlanceModifier.defaultWeight(),
         )
-        CombinedRefreshButton(row, density)
+        CombinedRefreshButton(row, density, dimensions.contentScale)
     }
 }
 
 @Composable
-private fun CombinedRefreshButton(row: CombinedRow, density: CombinedDensity) {
-    val hitSize = when (density) {
+private fun CombinedRefreshButton(
+    row: CombinedRow,
+    density: CombinedDensity,
+    contentScale: Float,
+) {
+    val hitSize = (when (density) {
         CombinedDensity.Comfortable -> 24.dp
         CombinedDensity.Compact -> 22.dp
         CombinedDensity.Dense -> 20.dp
-    }
-    val iconSize = when (density) {
+    }) * contentScale
+    val iconSize = (when (density) {
         CombinedDensity.Comfortable -> 18.dp
         CombinedDensity.Compact -> 16.dp
         CombinedDensity.Dense -> 14.dp
-    }
+    }) * contentScale
     RefreshButton(
         platformId = row.platformId,
         phase = row.refreshPhase,
@@ -665,7 +707,7 @@ private fun CombinedPlatformDetail(
             color = GlanceTheme.colors.onSurfaceVariant,
             fontSize = dimensions.nameSize,
         ),
-        maxLines = 1,
+        maxLines = if (dimensions.verticalScale > 1.01f) 2 else 1,
     )
 }
 

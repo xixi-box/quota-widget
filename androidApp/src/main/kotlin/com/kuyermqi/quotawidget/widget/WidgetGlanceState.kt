@@ -75,6 +75,7 @@ object WidgetGlanceState {
     val codexWindowKindKey = stringPreferencesKey("qw_codex_window_kind")
     val codexUsageDisplayModeKey = stringPreferencesKey("qw_codex_usage_display")
     val codexUsageProgressStyleKey = stringPreferencesKey("qw_codex_usage_progress_style")
+    val freeModelsKey = stringPreferencesKey("qw_free_models")
     val zhipuWindowKindKey = stringPreferencesKey("qw_zhipu_window_kind")
     val zhipuUsageDisplayModeKey = stringPreferencesKey("qw_zhipu_usage_display")
     val zhipuUsageProgressStyleKey = stringPreferencesKey("qw_zhipu_usage_progress_style")
@@ -115,6 +116,11 @@ object WidgetGlanceState {
         ),
         Target(OpenCodeGoWidget(), OpenCodeGoWidget::class.java, PlatformIds.OPENCODE_GO),
         Target(
+            OpenCodeFreeModelsWidget(),
+            OpenCodeFreeModelsWidget::class.java,
+            PlatformIds.OPENCODE_GO,
+        ),
+        Target(
             OpenCodeGoCompactWidget(),
             OpenCodeGoCompactWidget::class.java,
             PlatformIds.OPENCODE_GO,
@@ -151,6 +157,7 @@ object WidgetGlanceState {
         val codexSettings = repo.getCodexSettings()
         val newApiAdminStats = repo.getNewApiAdminStats()
         val zhipuSettings = repo.getZhipuSettings()
+        val freeModels = repo.getFreeModelsCache()
         val newApiSubscriptionSettings = repo.getNewApiSubscriptionSettings()
         Log.i(TAG, "syncAndUpdate reason=$reason")
 
@@ -179,6 +186,7 @@ object WidgetGlanceState {
                             zhipuSettings = zhipuSettings.takeIf {
                                 target.platformId == PlatformIds.ZHIPU
                             },
+                            freeModels = freeModels.models,
                             newApiSubscriptionSettings = newApiSubscriptionSettings.takeIf {
                                 target.platformId == PlatformIds.NEW_API_SUBSCRIPTION
                             },
@@ -305,6 +313,13 @@ object WidgetGlanceState {
 
     fun Preferences.toCombinedRefreshPhase(platformId: String): RefreshIconPhase =
         RefreshIconPhase.fromStorage(this[combinedStringKey(platformId, "refresh_phase")])
+
+    fun Preferences.toFreeModels(): List<String> =
+        this[freeModelsKey]
+            ?.split('\n')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
 
     fun Preferences.toAppThemeSettings(): AppSettings = AppSettings(
         darkThemeMode = DarkThemeMode.fromStorage(this[darkThemeModeKey]),
@@ -453,6 +468,7 @@ object WidgetGlanceState {
         zhipuSettings: ZhipuSettings? = null,
         newApiAdminStats: NewApiAdminStats? = null,
         newApiSubscriptionSettings: NewApiSubscriptionSettings? = null,
+        freeModels: List<String> = emptyList(),
     ) {
         this[refreshPhaseKey] = phase.name
         this[darkThemeModeKey] = appSettings.darkThemeMode.name
@@ -468,6 +484,9 @@ object WidgetGlanceState {
             this[codexWindowKindKey] = codexSettings.widgetWindowKind.name
             this[codexUsageDisplayModeKey] = codexSettings.usageDisplayMode.name
             this[codexUsageProgressStyleKey] = codexSettings.usageProgressStyle.name
+        }
+        if (freeModels.isNotEmpty()) {
+            this[freeModelsKey] = freeModels.joinToString("\n")
         }
         if (zhipuSettings != null) {
             this[zhipuWindowKindKey] = zhipuSettings.widgetWindowKind.name
