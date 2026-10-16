@@ -16,6 +16,9 @@ object PlatformIds {
     const val NEW_API = "new_api"
     const val ZHIPU = "zhipu"
     const val NEW_API_SUBSCRIPTION = "newapi_subscription"
+
+    /** Feature toggle in 平台组合, not a registered quota platform. */
+    const val FREE_MODELS = "free_models"
 }
 
 object PlatformRegistry {

@@ -62,6 +62,7 @@ import com.kuyermqi.quotawidget.domain.ALLOWED_REFRESH_INTERVAL_MINUTES
 import com.kuyermqi.quotawidget.domain.AppSettings
 import com.kuyermqi.quotawidget.domain.DarkThemeMode
 import com.kuyermqi.quotawidget.domain.ThemeColorMode
+import com.kuyermqi.quotawidget.platform.PlatformIds
 import com.kuyermqi.quotawidget.platform.PlatformRegistry
 import com.kuyermqi.quotawidget.settings.PlatformSettingsRepository
 import com.kuyermqi.quotawidget.widget.PlatformWidgetVisibility
@@ -261,6 +262,21 @@ fun AppSettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+                    val toggleComboItem: (String) -> Unit = { id ->
+                        val visible = id !in appSettings.hiddenPlatforms
+                        scope.launch {
+                            val nextHidden = if (visible) {
+                                appSettings.hiddenPlatforms + id
+                            } else {
+                                appSettings.hiddenPlatforms - id
+                            }
+                            settingsRepository.saveAppSettings(
+                                appSettings.copy(hiddenPlatforms = nextHidden),
+                            )
+                            PlatformWidgetVisibility.applyVisibility(context, nextHidden)
+                            WidgetGlanceState.syncAndUpdate(context, "platform_combo_user")
+                        }
+                    }
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -269,23 +285,16 @@ fun AppSettingsScreen(
                             val visible = platform.id !in appSettings.hiddenPlatforms
                             FilterChip(
                                 selected = visible,
-                                onClick = {
-                                    scope.launch {
-                                        val nextHidden = if (visible) {
-                                            appSettings.hiddenPlatforms + platform.id
-                                        } else {
-                                            appSettings.hiddenPlatforms - platform.id
-                                        }
-                                        settingsRepository.saveAppSettings(
-                                            appSettings.copy(hiddenPlatforms = nextHidden),
-                                        )
-                                        PlatformWidgetVisibility.applyVisibility(context, nextHidden)
-                                        WidgetGlanceState.syncAndUpdate(context, "platform_combo_user")
-                                    }
-                                },
+                                onClick = { toggleComboItem(platform.id) },
                                 label = { Text(platform.displayName) },
                             )
                         }
+                        val freeModelsVisible = PlatformIds.FREE_MODELS !in appSettings.hiddenPlatforms
+                        FilterChip(
+                            selected = freeModelsVisible,
+                            onClick = { toggleComboItem(PlatformIds.FREE_MODELS) },
+                            label = { Text(stringResource(R.string.opencode_free_models_title)) },
+                        )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(

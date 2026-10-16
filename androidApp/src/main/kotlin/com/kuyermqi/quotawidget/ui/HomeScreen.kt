@@ -105,8 +105,12 @@ fun HomeScreen(
     var highlightNonce by remember { mutableStateOf<Long?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
 
+    val appSettings by settingsRepository.observeAppSettings()
+        .collectAsStateWithLifecycle(initialValue = AppSettings())
+    val freeModelsEnabled = PlatformIds.FREE_MODELS !in appSettings.hiddenPlatforms
+
     val deepSeek = rememberDeepSeekHomeState(settingsRepository)
-    val openCode = rememberOpenCodeGoHomeState(settingsRepository)
+    val openCode = rememberOpenCodeGoHomeState(settingsRepository, freeModelsEnabled)
     val codex = rememberCodexHomeState(settingsRepository)
     val newApi = rememberNewApiHomeState(settingsRepository)
     val zhipu = rememberZhipuHomeState(settingsRepository)
@@ -119,8 +123,6 @@ fun HomeScreen(
     NewApiHomeEffects(newApi)
     val newApiSubscriptionWidgetState = NewApiSubscriptionHomeEffects(newApiSubscription)
 
-    val appSettings by settingsRepository.observeAppSettings()
-        .collectAsStateWithLifecycle(initialValue = AppSettings())
     val visiblePlatforms = remember(appSettings.hiddenPlatforms) {
         PlatformRegistry.platforms.filter { it.id !in appSettings.hiddenPlatforms }
     }
@@ -347,6 +349,7 @@ fun HomeScreen(
                                 state = openCode,
                                 bindings = openCodeBindings,
                                 onRefreshPlatform = onRefreshPlatform,
+                                showFreeModels = freeModelsEnabled,
                             )
                             PlatformIds.CODEX -> CodexHomeContent(
                                 state = codex,

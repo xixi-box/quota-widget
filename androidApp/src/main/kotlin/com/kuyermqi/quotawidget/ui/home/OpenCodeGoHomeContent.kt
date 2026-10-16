@@ -36,7 +36,7 @@ import com.kuyermqi.quotawidget.domain.UsageWindowKind
 import com.kuyermqi.quotawidget.domain.WidgetDisplayState
 import com.kuyermqi.quotawidget.domain.opencode.OpenCodeLoginWebViewFlow
 import com.kuyermqi.quotawidget.opencode.OpenCodeGoClient
-import com.kuyermqi.quotawidget.modelsdev.ModelsDevClient
+import com.kuyermqi.quotawidget.opencode.OpenCodeFreeModelsClient
 import com.kuyermqi.quotawidget.opencode.OpenCodeWorkspace
 import com.kuyermqi.quotawidget.platform.PlatformIds
 import com.kuyermqi.quotawidget.settings.FreeModelsCache
@@ -90,7 +90,7 @@ class OpenCodeGoHomeState internal constructor(
      * Loads the models.dev catalog when the cached copy is stale, then persists it
      * so the free-models widget can render it too.
      */
-    suspend fun loadFreeModelsIfStale(client: ModelsDevClient) {
+    suspend fun loadFreeModelsIfStale(client: OpenCodeFreeModelsClient) {
         val cached = settingsRepository.getFreeModelsCache()
         if (freeModels.isEmpty() && cached.models.isNotEmpty()) {
             freeModels = cached.models
@@ -188,23 +188,25 @@ data class OpenCodeGoHomeBindings(
 @Composable
 fun rememberOpenCodeGoHomeState(
     settingsRepository: PlatformSettingsRepository,
+    freeModelsEnabled: Boolean,
 ): OpenCodeGoHomeState {
     val client = remember { OpenCodeGoClient() }
-    val modelsDevClient = remember { ModelsDevClient() }
+    val freeModelsClient = remember { OpenCodeFreeModelsClient() }
     val context = LocalContext.current
     val state = remember(settingsRepository, client) {
         OpenCodeGoHomeState(settingsRepository, client)
     }
     // Free-model catalog is account-independent, so load it on first show.
-    LaunchedEffect(state) {
-        withContext(Dispatchers.IO) { state.loadFreeModelsIfStale(modelsDevClient) }
+    LaunchedEffect(state, freeModelsEnabled) {
+        if (!freeModelsEnabled) return@LaunchedEffect
+        withContext(Dispatchers.IO) { state.loadFreeModelsIfStale(freeModelsClient) }
         // Mirror the freshly loaded list into the widget state right away.
         WidgetGlanceState.syncAndUpdate(context, "free_models")
     }
-    DisposableEffect(client, modelsDevClient) {
+    DisposableEffect(client, freeModelsClient) {
         onDispose {
             client.close()
-            modelsDevClient.close()
+            freeModelsClient.close()
         }
     }
     return state
@@ -328,6 +330,7 @@ fun ColumnScope.OpenCodeGoHomeContent(
     state: OpenCodeGoHomeState,
     bindings: OpenCodeGoHomeBindings,
     onRefreshPlatform: suspend (String) -> WidgetDisplayState,
+    showFreeModels: Boolean,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -423,7 +426,9 @@ fun ColumnScope.OpenCodeGoHomeContent(
             }
         },
     )
-    FreeModelsSection(state)
+    if (showFreeModels) {
+        FreeModelsSection(state)
+    }
 }
 
 @Composable
@@ -471,8 +476,8 @@ private fun FreeModelsSection(state: OpenCodeGoHomeState) {
     }
 }
 
-/** models.dev is a ~5.6MB document; refresh the cached copy weekly. */
-private const val FREE_MODELS_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+/** Limited-time promos rotate; refresh the official pricing page daily. */
+private const val FREE_MODELS_TTL_MS = 24L * 60L * 60L * 1000L
 
 private suspend fun clearOpenCodeSession(
     state: OpenCodeGoHomeState,

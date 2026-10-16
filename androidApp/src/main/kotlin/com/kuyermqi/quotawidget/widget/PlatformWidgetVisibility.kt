@@ -22,9 +22,11 @@ object PlatformWidgetVisibility {
         ),
         PlatformIds.OPENCODE_GO to listOf(
             OpenCodeGoWidgetReceiver::class.java,
-            OpenCodeFreeModelsWidgetReceiver::class.java,
             OpenCodeGoCompactWidgetReceiver::class.java,
             OpenCodeGoOverviewWidgetReceiver::class.java,
+        ),
+        PlatformIds.FREE_MODELS to listOf(
+            OpenCodeFreeModelsWidgetReceiver::class.java,
         ),
         PlatformIds.CODEX to listOf(
             CodexWidgetReceiver::class.java,
@@ -52,9 +54,11 @@ object PlatformWidgetVisibility {
         ),
         PlatformIds.OPENCODE_GO to listOf(
             OpenCodeGoWidget::class.java,
-            OpenCodeFreeModelsWidget::class.java,
             OpenCodeGoCompactWidget::class.java,
             OpenCodeGoOverviewWidget::class.java,
+        ),
+        PlatformIds.FREE_MODELS to listOf(
+            OpenCodeFreeModelsWidget::class.java,
         ),
         PlatformIds.CODEX to listOf(
             CodexWidget::class.java,

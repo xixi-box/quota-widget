@@ -817,8 +817,9 @@ class AndroidPlatformSettingsRepository(
         val REFRESH_INTERVAL_MINUTES = intPreferencesKey("refresh_interval_minutes")
         val CHECK_FOR_UPDATES_ON_LAUNCH = booleanPreferencesKey("check_for_updates_on_launch")
         val PLATFORM_VISIBILITY = stringSetPreferencesKey("platform_visibility")
-        val FREE_MODELS = stringPreferencesKey("free_models")
-        val FREE_MODELS_UPDATED_AT = longPreferencesKey("free_models_updated_at")
+        // v2 keys: the v1 cache held a wrong models.dev-derived list.
+        val FREE_MODELS = stringPreferencesKey("go_free_models_v2")
+        val FREE_MODELS_UPDATED_AT = longPreferencesKey("go_free_models_v2_updated_at")
         val UPDATE_IGNORED_VERSION = stringPreferencesKey("update_ignored_version")
     }
 

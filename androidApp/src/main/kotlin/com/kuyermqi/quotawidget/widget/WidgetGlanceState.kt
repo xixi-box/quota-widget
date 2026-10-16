@@ -76,6 +76,7 @@ object WidgetGlanceState {
     val codexUsageDisplayModeKey = stringPreferencesKey("qw_codex_usage_display")
     val codexUsageProgressStyleKey = stringPreferencesKey("qw_codex_usage_progress_style")
     val freeModelsKey = stringPreferencesKey("qw_free_models")
+    val freeModelsUpdatedAtKey = longPreferencesKey("qw_free_models_updated_at")
     val zhipuWindowKindKey = stringPreferencesKey("qw_zhipu_window_kind")
     val zhipuUsageDisplayModeKey = stringPreferencesKey("qw_zhipu_usage_display")
     val zhipuUsageProgressStyleKey = stringPreferencesKey("qw_zhipu_usage_progress_style")
@@ -230,6 +231,12 @@ object WidgetGlanceState {
                     this[newApiSubscriptionUsageProgressStyleKey] =
                         newApiSubscriptionSettings.usageProgressStyle.name
                     writeNewApiAdminStats(newApiAdminStats)
+                    if (freeModels.models.isNotEmpty()) {
+                        this[freeModelsKey] = freeModels.models.joinToString("\n")
+                    }
+                    this[freeModelsUpdatedAtKey] = freeModels.updatedAtEpochMs
+                    this[combinedStringKey(PlatformIds.FREE_MODELS, "refresh_phase")] =
+                        repo.getRefreshIconPhase(PlatformIds.FREE_MODELS).name
                     PlatformRegistry.platforms.forEach { platform ->
                         writeCombinedPlatform(
                             platformId = platform.id,
@@ -320,6 +327,9 @@ object WidgetGlanceState {
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
             .orEmpty()
+
+    fun Preferences.toFreeModelsUpdatedAt(): Long =
+        this[freeModelsUpdatedAtKey] ?: 0L
 
     fun Preferences.toAppThemeSettings(): AppSettings = AppSettings(
         darkThemeMode = DarkThemeMode.fromStorage(this[darkThemeModeKey]),

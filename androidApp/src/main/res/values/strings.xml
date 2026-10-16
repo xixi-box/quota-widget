@@ -57,7 +57,8 @@
     <string name="opencode_free_models_title">免费模型</string>
     <string name="opencode_free_models_loading">正在获取免费模型…</string>
     <string name="opencode_free_models_unavailable">暂时无法获取免费模型列表</string>
-    <string name="opencode_free_models_hint">来自 models.dev 目录，免费模型不消耗 Go 额度</string>
+    <string name="opencode_free_models_hint">来自 OpenCode Go 官方定价页，免费模型不消耗 Go 额度</string>
+    <string name="widget_combined_free_count">%1$d 个</string>
     <string name="widget_opencode_free_label">OpenCode 免费模型</string>
     <string name="widget_opencode_free_description">列出 OpenCode 当前可用的免费模型</string>
     <string name="widget_updated_at">更新于 %1$s</string>

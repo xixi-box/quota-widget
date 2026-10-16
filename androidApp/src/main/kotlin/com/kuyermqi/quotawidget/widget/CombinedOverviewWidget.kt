@@ -62,6 +62,8 @@ import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toCodexUsageProgressSty
 import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toCodexUsageWindowKind
 import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toCombinedDisplayState
 import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toCombinedRefreshPhase
+import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toFreeModels
+import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toFreeModelsUpdatedAt
 import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toNewApiSubscriptionUsageDisplayMode
 import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toNewApiSubscriptionUsageProgressStyle
 import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toNewApiAdminStats
@@ -93,7 +95,9 @@ class CombinedOverviewWidget : GlanceAppWidget() {
                 GlanceTheme {
                     CombinedContent(
                         rows = prefs.toCombinedRows(context)
-                            .filter { it.platformId !in hiddenPlatforms },
+                            .filter { it.platformId !in hiddenPlatforms }
+                            .plus(prefs.freeModelsRow(context, hiddenPlatforms))
+                            .filterNotNull(),
                         emptyText = emptyText,
                         openApp = openApp,
                     )
@@ -222,6 +226,27 @@ private fun Preferences.toCombinedRows(context: Context): List<CombinedRow> =
             )
         }
     }
+
+/**
+ * 平台组合's 免费模型 toggle drives this card. The refresh button re-fetches the
+ * official pricing page via [WidgetRefreshCoordinator] (platformId = free_models);
+ * 更新时间 comes from the catalog cache timestamp.
+ */
+private fun Preferences.freeModelsRow(
+    context: Context,
+    hiddenPlatforms: Set<String>,
+): CombinedRow? {
+    if (PlatformIds.FREE_MODELS in hiddenPlatforms) return null
+    val models = toFreeModels()
+    return CombinedRow(
+        platformId = PlatformIds.FREE_MODELS,
+        name = context.getString(R.string.opencode_free_models_title),
+        value = context.getString(R.string.widget_combined_free_count, models.size),
+        detailValues = models,
+        refreshPhase = toCombinedRefreshPhase(PlatformIds.FREE_MODELS),
+        updatedAtEpochMs = toFreeModelsUpdatedAt(),
+    )
+}
 
 private fun usageRow(
     context: Context,
@@ -531,7 +556,7 @@ private fun CombinedPlatformCard(
             if (expanded) {
                 Spacer(modifier = GlanceModifier.defaultWeight())
             }
-            if (density == CombinedDensity.Comfortable && row.updatedAtEpochMs > 0L) {
+            if (showUpdatedAt(row, density, dimensions.verticalScale)) {
                 if (!expanded) {
                     Spacer(modifier = GlanceModifier.height(dimensions.cardTextGap))
                 }
@@ -561,6 +586,29 @@ private fun CombinedPlatformCard(
             CombinedRefreshButton(row, density, dimensions.contentScale)
         }
     }
+}
+
+/**
+ * 更新时间 only fits when the card has spare VERTICAL height: a 7-card grid
+ * leaves each row too short for content-heavy cards (3 usage bars or 4 text
+ * lines), which clips the timestamp mid-line. Width-driven growth (contentScale)
+ * does not help, so gate on verticalScale, else require a short card.
+ */
+private fun showUpdatedAt(
+    row: CombinedRow,
+    density: CombinedDensity,
+    verticalScale: Float,
+): Boolean {
+    if (density != CombinedDensity.Comfortable || row.updatedAtEpochMs <= 0L) {
+        return false
+    }
+    if (verticalScale > 1.01f) return true
+    val contentLines = if (row.windows.isNotEmpty()) {
+        row.windows.size
+    } else {
+        1 + (if (row.secondaryValue != null) 1 else 0) + row.detailValues.size
+    }
+    return contentLines <= 2
 }
 
 @Composable

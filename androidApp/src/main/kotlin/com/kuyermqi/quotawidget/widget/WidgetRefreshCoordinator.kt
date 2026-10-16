@@ -7,10 +7,13 @@ import androidx.work.WorkManager
 import com.kuyermqi.quotawidget.QuotaWidgetApp
 import com.kuyermqi.quotawidget.domain.RefreshIconPhase
 import com.kuyermqi.quotawidget.domain.WidgetDisplayState
+import com.kuyermqi.quotawidget.opencode.OpenCodeFreeModelsClient
 import com.kuyermqi.quotawidget.platform.PlatformIds
 import com.kuyermqi.quotawidget.refresh.BalanceRefreshResult
 import com.kuyermqi.quotawidget.refresh.SingleFlight
+import com.kuyermqi.quotawidget.settings.FreeModelsCache
 import com.kuyermqi.quotawidget.worker.BalanceRefreshWorker
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -70,7 +73,11 @@ object WidgetRefreshCoordinator {
             settings.setRefreshIconPhase(platformId, RefreshIconPhase.Spinning)
             updateWidgetSerialized(context, "spinning")
 
-            val result = app.refreshInteractor.refresh(platformId)
+            val result = if (platformId == PlatformIds.FREE_MODELS) {
+                refreshFreeModels(app)
+            } else {
+                app.refreshInteractor.refresh(platformId)
+            }
             logResult(platformId, result)
             Log.i(TAG, "runUserRefresh network done platform=$platformId")
 
@@ -87,6 +94,25 @@ object WidgetRefreshCoordinator {
             settings.setRefreshIconPhase(platformId, RefreshIconPhase.Idle)
             Log.i(TAG, "runUserRefresh finally phase=Idle platform=$platformId")
             updateWidgetSerialized(context, "idle")
+        }
+    }
+
+    /** 免费模型 has no quota provider; the button re-fetches the official pricing page. */
+    private suspend fun refreshFreeModels(app: QuotaWidgetApp): BalanceRefreshResult {
+        val client = OpenCodeFreeModelsClient()
+        return try {
+            val models = client.fetchFreeModels()
+            app.settingsRepository.saveFreeModelsCache(
+                FreeModelsCache(models = models, updatedAtEpochMs = System.currentTimeMillis()),
+            )
+            BalanceRefreshResult.Completed(WidgetDisplayState.NotConfigured)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "refreshFreeModels failed", e)
+            BalanceRefreshResult.TransientFailure(WidgetDisplayState.NotConfigured)
+        } finally {
+            client.close()
         }
     }
 
