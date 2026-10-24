@@ -152,9 +152,34 @@ object WidgetGlanceState {
         ),
     )
 
+    /**
+     * A worker killed mid-refresh (process frozen, job quota exhausted) leaves
+     * Spinning phases behind that nothing will ever clear — the launcher then
+     * spins forever. Recovery runs on every sync: a phase older than
+     * [STALE_PHASE_MS] is reset to Idle so the next widget write heals the UI.
+     */
+    private val STALE_PHASE_MS = 90_000L
+
+    private suspend fun recoverStalePhase(repo: PlatformSettingsRepository, platformId: String) {
+        val phase = repo.getRefreshIconPhase(platformId)
+        if (phase == RefreshIconPhase.Idle) return
+        val startedAt = repo.getRefreshStartedAtEpochMs(platformId)
+        if (startedAt > 0L &&
+            System.currentTimeMillis() - startedAt > STALE_PHASE_MS
+        ) {
+            Log.w(TAG, "recover stale phase=$phase platform=$platformId ageMs=" +
+                "${System.currentTimeMillis() - startedAt}")
+            repo.setRefreshIconPhase(platformId, RefreshIconPhase.Idle)
+        }
+    }
+
     suspend fun syncAndUpdate(context: Context, reason: String) {
         val app = context.applicationContext as QuotaWidgetApp
         val repo = app.settingsRepository
+        PlatformRegistry.platforms.forEach { platform ->
+            recoverStalePhase(repo, platform.id)
+        }
+        recoverStalePhase(repo, PlatformIds.FREE_MODELS)
         val appSettings = repo.getAppSettings()
         val openCodeSettings = repo.getOpenCodeGoSettings()
         val codexSettings = repo.getCodexSettings()

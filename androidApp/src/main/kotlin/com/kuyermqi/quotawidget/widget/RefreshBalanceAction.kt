@@ -20,10 +20,16 @@ class RefreshBalanceAction : ActionCallback {
         val platformId = parameters[PLATFORM_ID_KEY]
             ?: PlatformIds.DEEPSEEK
         Log.i("QuotaRefresh", "RefreshBalanceAction platform=$platformId glanceId=$glanceId")
-        WidgetRefreshCoordinator.beginUserRefresh(context, platformId)
+        if (parameters[REFRESH_ALL_KEY] == true) {
+            // 总览 sub-cards: one tap refreshes every card.
+            WidgetRefreshCoordinator.beginUserRefreshAll(context)
+        } else {
+            WidgetRefreshCoordinator.beginUserRefresh(context, platformId)
+        }
     }
 
     companion object {
         val PLATFORM_ID_KEY = ActionParameters.Key<String>("platform_id")
+        val REFRESH_ALL_KEY = ActionParameters.Key<Boolean>("refresh_all")
     }
 }

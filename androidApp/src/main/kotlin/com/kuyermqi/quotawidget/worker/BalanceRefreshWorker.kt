@@ -22,10 +22,13 @@ class BalanceRefreshWorker(
             "doWork start userInitiated=$userInitiated platformId=$platformId id=$id",
         )
         return try {
-            val refreshResult = if (userInitiated && !platformId.isNullOrBlank()) {
-                WidgetRefreshCoordinator.runUserRefresh(applicationContext, platformId)
-            } else {
-                WidgetRefreshCoordinator.runBackgroundRefresh(applicationContext)
+            val refreshResult = when {
+                userInitiated && !platformId.isNullOrBlank() ->
+                    WidgetRefreshCoordinator.runUserRefresh(applicationContext, platformId)
+                userInitiated ->
+                    WidgetRefreshCoordinator.runUserRefreshAll(applicationContext)
+                else ->
+                    WidgetRefreshCoordinator.runBackgroundRefresh(applicationContext)
             }
             when (refreshResult) {
                 is BalanceRefreshResult.Completed -> {
@@ -42,7 +45,11 @@ class BalanceRefreshWorker(
                             "platformId=$platformId retryable=${refreshResult.retryable} " +
                             "retained=${refreshResult.retained::class.simpleName}",
                     )
-                    if (refreshResult.retryable) {
+                    // User-initiated taps must not spawn silent backoff-retry
+                    // chains: each retry burns JobScheduler timeout quota and a
+                    // deferred retry keeps nothing visible. The user can tap
+                    // again; the periodic refresh covers background failures.
+                    if (refreshResult.retryable && !userInitiated) {
                         Result.retry()
                     } else {
                         Result.success()

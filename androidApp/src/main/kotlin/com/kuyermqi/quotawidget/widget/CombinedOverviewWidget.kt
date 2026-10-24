@@ -729,6 +729,8 @@ private fun CombinedRefreshButton(
         hitSize = hitSize,
         iconSize = iconSize,
         spinnerSize = iconSize,
+        // 总览: any sub-card's button refreshes every card.
+        refreshAll = true,
     )
 }
 

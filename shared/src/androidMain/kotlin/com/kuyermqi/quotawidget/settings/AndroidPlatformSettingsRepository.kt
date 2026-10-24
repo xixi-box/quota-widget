@@ -441,6 +441,8 @@ class AndroidPlatformSettingsRepository(
             PlatformIds.NEW_API,
             PlatformIds.ZHIPU,
             PlatformIds.NEW_API_SUBSCRIPTION,
+            // Not a registry platform, but its overview card carries a phase too.
+            PlatformIds.FREE_MODELS,
         )) {
                 prefs[refreshPhaseKey(platformId)] = RefreshIconPhase.Idle.name
             }

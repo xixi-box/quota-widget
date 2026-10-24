@@ -228,10 +228,12 @@ internal fun RefreshButton(
     iconSize: Dp = 24.dp,
     spinnerSize: Dp = 22.dp,
     scale: Float = 1f,
+    refreshAll: Boolean = false,
 ) {
     val refresh = actionRunCallback<RefreshBalanceAction>(
         parameters = actionParametersOf(
             RefreshBalanceAction.PLATFORM_ID_KEY to platformId,
+            RefreshBalanceAction.REFRESH_ALL_KEY to refreshAll,
         ),
     )
     Box(

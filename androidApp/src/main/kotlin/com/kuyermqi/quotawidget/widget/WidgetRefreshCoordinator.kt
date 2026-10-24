@@ -22,6 +22,7 @@ object WidgetRefreshCoordinator {
     private const val TAG = "QuotaRefresh"
     private const val STALE_SPIN_TIMEOUT_MS = 45_000L
     private const val MIN_SPINNER_VISIBLE_MS = 450L
+    const val USER_REFRESH_ALL_WORK_NAME = "quota_balance_user_refresh_all"
 
     private val widgetUpdateMutex = Mutex()
     private val backgroundRefreshFlight = SingleFlight<BalanceRefreshResult>()
@@ -120,6 +121,98 @@ object WidgetRefreshCoordinator {
         backgroundRefreshFlight.run {
             runBackgroundRefreshOnce(context.applicationContext)
         }
+
+    /**
+     * 总览 refresh-all: every sub-card's button triggers this, so one tap spins
+     * all cards and refreshes every configured platform plus the free-model
+     * catalog. Spinning phases are only set for platforms that actually have
+     * something to refresh; the free-model card spins unconditionally.
+     */
+    suspend fun beginUserRefreshAll(context: Context) {
+        val app = context.applicationContext as QuotaWidgetApp
+        val settings = app.settingsRepository
+        val ids = refreshablePlatformIds(app)
+        val now = System.currentTimeMillis()
+        val busy = ids.any { id ->
+            val phase = settings.getRefreshIconPhase(id)
+            val startedAt = settings.getRefreshStartedAtEpochMs(id)
+            (phase == RefreshIconPhase.Spinning || phase == RefreshIconPhase.Settling) &&
+                startedAt > 0L && now - startedAt < STALE_SPIN_TIMEOUT_MS
+        }
+        if (busy) {
+            Log.i(TAG, "beginUserRefreshAll ignored; a user refresh is already running")
+            return
+        }
+        ids.forEach { id ->
+            settings.setRefreshStartedAtEpochMs(id, now)
+            settings.setRefreshIconPhase(id, RefreshIconPhase.Spinning)
+        }
+        updateWidgetSerialized(context, "spinning-all-pre-enqueue")
+        Log.i(TAG, "beginUserRefreshAll enqueued work count=${ids.size}")
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            USER_REFRESH_ALL_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            BalanceRefreshWork.oneTime(userInitiated = true, expedited = true),
+        )
+    }
+
+    suspend fun runUserRefreshAll(context: Context): BalanceRefreshResult {
+        val app = context.applicationContext as QuotaWidgetApp
+        val settings = app.settingsRepository
+        val ids = refreshablePlatformIds(app)
+        val startedAt = System.currentTimeMillis()
+        Log.i(TAG, "runUserRefreshAll start count=${ids.size}")
+        return try {
+            val background = runBackgroundRefresh(context)
+            val freeModels = refreshFreeModels(app)
+            val result = if (freeModels is BalanceRefreshResult.TransientFailure &&
+                freeModels.retryable
+            ) {
+                freeModels
+            } else {
+                background
+            }
+            logResult("all", result)
+            val remain = MIN_SPINNER_VISIBLE_MS - (System.currentTimeMillis() - startedAt)
+            if (remain > 0L) {
+                delay(remain)
+            }
+            result
+        } catch (t: Throwable) {
+            Log.e(TAG, "runUserRefreshAll failed", t)
+            throw t
+        } finally {
+            ids.forEach { settings.setRefreshIconPhase(it, RefreshIconPhase.Idle) }
+            Log.i(TAG, "runUserRefreshAll finally phase=Idle")
+            updateWidgetSerialized(context, "idle-all")
+        }
+    }
+
+    /** Platforms with something to refresh, mirroring refreshAllConfigured(). */
+    private suspend fun refreshablePlatformIds(app: QuotaWidgetApp): List<String> {
+        val settings = app.settingsRepository
+        return buildList {
+            if (settings.getDeepSeekSettings().apiKey.isNotBlank()) {
+                add(PlatformIds.DEEPSEEK)
+            }
+            if (settings.getOpenCodeGoSettings().isConfigured) {
+                add(PlatformIds.OPENCODE_GO)
+            }
+            if (settings.getCodexSettings().isConfigured) {
+                add(PlatformIds.CODEX)
+            }
+            if (settings.getNewApiSettings().isConfigured) {
+                add(PlatformIds.NEW_API)
+            }
+            if (settings.getZhipuSettings().isConfigured) {
+                add(PlatformIds.ZHIPU)
+            }
+            if (settings.getNewApiSubscriptionSettings().isConfigured) {
+                add(PlatformIds.NEW_API_SUBSCRIPTION)
+            }
+            add(PlatformIds.FREE_MODELS)
+        }
+    }
 
     private suspend fun runBackgroundRefreshOnce(context: Context): BalanceRefreshResult {
         val app = context.applicationContext as QuotaWidgetApp
