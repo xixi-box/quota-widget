@@ -13,7 +13,9 @@ import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.LocalSize
 import androidx.glance.action.Action
+import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
@@ -34,11 +36,13 @@ import androidx.glance.text.TextStyle
 import com.kuyermqi.quotawidget.MainActivity
 import com.kuyermqi.quotawidget.R
 import com.kuyermqi.quotawidget.platform.PlatformIds
+import com.kuyermqi.quotawidget.settings.FreeModelEntry
 import com.kuyermqi.quotawidget.widget.WidgetGlanceState.toFreeModels
 
 /**
- * OpenCode free models: account-independent list from the models.dev catalog,
- * so the widget works without signing in.
+ * OpenCode free models: account-independent list from the official Go pricing
+ * page, so the widget works without signing in. Tapping a row copies the
+ * callable model id.
  */
 class OpenCodeFreeModelsWidget : GlanceAppWidget() {
     override val stateDefinition: GlanceStateDefinition<*> = PreferencesGlanceStateDefinition
@@ -57,7 +61,7 @@ class OpenCodeFreeModelsWidget : GlanceAppWidget() {
 
 @Composable
 private fun FreeModelsWidgetContent(
-    models: List<String>,
+    models: List<FreeModelEntry>,
     openApp: Action,
 ) {
     // Shrink the type as the widget gets smaller, and cap the row count to what
@@ -113,9 +117,15 @@ private fun FreeModelsWidgetContent(
                     modifier = GlanceModifier.clickableNoRipple(openApp),
                 )
             } else {
-                models.take(density.maxRows).forEach { model ->
+                models.take(density.maxRows).forEach { entry ->
+                    val copy = actionRunCallback<CopyTextAction>(
+                        parameters = actionParametersOf(
+                            CopyTextAction.TEXT_KEY to entry.copyText,
+                            CopyTextAction.LABEL_KEY to entry.name,
+                        ),
+                    )
                     Text(
-                        text = "· $model",
+                        text = entry.modelId.ifBlank { entry.name },
                         style = TextStyle(
                             color = GlanceTheme.colors.onSurface,
                             fontSize = density.rowSize,
@@ -123,9 +133,9 @@ private fun FreeModelsWidgetContent(
                         maxLines = 1,
                         modifier = GlanceModifier
                             .fillMaxWidth()
-                            .clickableNoRipple(openApp),
+                            .clickableNoRipple(copy),
                     )
-                    Spacer(modifier = GlanceModifier.height(density.rowGap))
+                    Spacer(GlanceModifier.height(density.rowGap))
                 }
                 if (models.size > density.maxRows) {
                     Text(

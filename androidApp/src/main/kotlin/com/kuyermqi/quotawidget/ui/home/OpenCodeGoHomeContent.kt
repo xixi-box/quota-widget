@@ -1,13 +1,22 @@
 package com.kuyermqi.quotawidget.ui.home
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.webkit.CookieManager
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -39,6 +48,7 @@ import com.kuyermqi.quotawidget.opencode.OpenCodeGoClient
 import com.kuyermqi.quotawidget.opencode.OpenCodeFreeModelsClient
 import com.kuyermqi.quotawidget.opencode.OpenCodeWorkspace
 import com.kuyermqi.quotawidget.platform.PlatformIds
+import com.kuyermqi.quotawidget.settings.FreeModelEntry
 import com.kuyermqi.quotawidget.settings.FreeModelsCache
 import com.kuyermqi.quotawidget.settings.OpenCodeGoSettings
 import com.kuyermqi.quotawidget.settings.PlatformSettingsRepository
@@ -46,6 +56,7 @@ import com.kuyermqi.quotawidget.ui.components.OpenCodeGoConfigContent
 import com.kuyermqi.quotawidget.ui.usage.formatUsageWindowSummary
 import com.kuyermqi.quotawidget.widget.WidgetGlanceState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -77,7 +88,7 @@ class OpenCodeGoHomeState internal constructor(
         internal set
     var workspacesError by mutableStateOf<String?>(null)
         internal set
-    var freeModels by mutableStateOf<List<String>>(emptyList())
+    var freeModels by mutableStateOf<List<FreeModelEntry>>(emptyList())
         internal set
     var isLoadingFreeModels by mutableStateOf(false)
         internal set
@@ -87,7 +98,7 @@ class OpenCodeGoHomeState internal constructor(
         internal set
 
     /**
-     * Loads the models.dev catalog when the cached copy is stale, then persists it
+     * Loads the official Go pricing page when the cached copy is stale, then persists it
      * so the free-models widget can render it too.
      */
     suspend fun loadFreeModelsIfStale(client: OpenCodeFreeModelsClient) {
@@ -452,12 +463,8 @@ private fun FreeModelsSection(state: OpenCodeGoHomeState) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             state.freeModels.isNotEmpty() -> Column {
-                state.freeModels.forEach { model ->
-                    Text(
-                        text = "· $model",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                state.freeModels.forEach { entry ->
+                    FreeModelRow(entry)
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -475,6 +482,64 @@ private fun FreeModelsSection(state: OpenCodeGoHomeState) {
         }
     }
 }
+
+/**
+ * One free model: the callable model id and a copy button. The display name
+ * from the pricing page is not a valid id, so only the id is shown.
+ */
+@Composable
+private fun FreeModelRow(entry: FreeModelEntry) {
+    val context = LocalContext.current
+    val clipboard = remember { context.getSystemService(ClipboardManager::class.java) }
+    var copied by remember { mutableStateOf(false) }
+    val copyLabel = stringResource(R.string.opencode_free_models_copy)
+    val copiedLabel = stringResource(R.string.opencode_free_models_copied)
+    val toastTemplate = stringResource(R.string.opencode_free_models_copy_toast)
+    // "已复制" is a transient acknowledgement; it reverts so the button can be
+    // used again for the next model.
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(COPIED_FEEDBACK_MS)
+            copied = false
+        }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "· ${entry.copyText}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        TextButton(
+            onClick = {
+                clipboard.setPrimaryClip(
+                    ClipData.newPlainText(entry.name, entry.copyText),
+                )
+                copied = true
+                Toast.makeText(
+                    context,
+                    toastTemplate.format(entry.copyText),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            },
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+        ) {
+            Text(
+                text = if (copied) copiedLabel else copyLabel,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+/** How long the copy button shows "已复制" before reverting. */
+private const val COPIED_FEEDBACK_MS = 2_000L
 
 /** Limited-time promos rotate; refresh the official pricing page daily. */
 private const val FREE_MODELS_TTL_MS = 24L * 60L * 60L * 1000L

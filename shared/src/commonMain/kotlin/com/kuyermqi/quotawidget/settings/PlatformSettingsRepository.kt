@@ -82,9 +82,23 @@ data class NewApiSubscriptionSettings(
         get() = baseUrl.isNotBlank() && accessToken.isNotBlank() && userId.isNotBlank()
 }
 
-/** Cached models.dev free-model catalog (shared by the app UI and widgets). */
+/**
+ * A free model advertised on the OpenCode Go pricing page.
+ * [modelId] is the id used when calling the inference endpoint (e.g.
+ * `minimax-m3.1-flash-free`); it is empty when the page has no id table entry.
+ */
+data class FreeModelEntry(
+    val name: String,
+    val modelId: String = "",
+) {
+    /** What a user pastes into a client: the callable id, or the display name. */
+    val copyText: String
+        get() = modelId.ifBlank { name }
+}
+
+/** Cached free-model catalog (shared by the app UI and widgets). */
 data class FreeModelsCache(
-    val models: List<String> = emptyList(),
+    val models: List<FreeModelEntry> = emptyList(),
     val updatedAtEpochMs: Long = 0L,
 ) {
     val isEmpty: Boolean

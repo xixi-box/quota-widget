@@ -504,7 +504,9 @@ class AndroidPlatformSettingsRepository(
 
     override suspend fun saveFreeModelsCache(cache: FreeModelsCache) {
         dataStore.edit { prefs ->
-            prefs[Keys.FREE_MODELS] = cache.models.joinToString("\n")
+            prefs[Keys.FREE_MODELS] = cache.models.joinToString("\n") { entry ->
+                "${entry.name}\t${entry.modelId}"
+            }
             prefs[Keys.FREE_MODELS_UPDATED_AT] = cache.updatedAtEpochMs
         }
     }
@@ -514,6 +516,17 @@ class AndroidPlatformSettingsRepository(
             ?.split('\n')
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
+            ?.map { line ->
+                val separator = line.indexOf('\t')
+                if (separator < 0) {
+                    FreeModelEntry(name = line)
+                } else {
+                    FreeModelEntry(
+                        name = line.substring(0, separator).trim(),
+                        modelId = line.substring(separator + 1).trim(),
+                    )
+                }
+            }
             .orEmpty()
         val updatedAt = this[Keys.FREE_MODELS_UPDATED_AT] ?: 0L
         return FreeModelsCache(models = models, updatedAtEpochMs = updatedAt)
@@ -817,9 +830,9 @@ class AndroidPlatformSettingsRepository(
         val REFRESH_INTERVAL_MINUTES = intPreferencesKey("refresh_interval_minutes")
         val CHECK_FOR_UPDATES_ON_LAUNCH = booleanPreferencesKey("check_for_updates_on_launch")
         val PLATFORM_VISIBILITY = stringSetPreferencesKey("platform_visibility")
-        // v2 keys: the v1 cache held a wrong models.dev-derived list.
-        val FREE_MODELS = stringPreferencesKey("go_free_models_v2")
-        val FREE_MODELS_UPDATED_AT = longPreferencesKey("go_free_models_v2_updated_at")
+        // v3 keys: v1 held a wrong models.dev list, v2 had names but no model ids.
+        val FREE_MODELS = stringPreferencesKey("go_free_models_v3")
+        val FREE_MODELS_UPDATED_AT = longPreferencesKey("go_free_models_v3_updated_at")
         val UPDATE_IGNORED_VERSION = stringPreferencesKey("update_ignored_version")
     }
 

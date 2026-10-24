@@ -37,6 +37,7 @@ import com.kuyermqi.quotawidget.domain.formatBalance
 import com.kuyermqi.quotawidget.platform.PlatformIds
 import com.kuyermqi.quotawidget.platform.PlatformRegistry
 import com.kuyermqi.quotawidget.settings.CodexSettings
+import com.kuyermqi.quotawidget.settings.FreeModelEntry
 import com.kuyermqi.quotawidget.settings.NewApiSubscriptionSettings
 import com.kuyermqi.quotawidget.settings.OpenCodeGoSettings
 import com.kuyermqi.quotawidget.settings.PlatformSettingsRepository
@@ -75,8 +76,9 @@ object WidgetGlanceState {
     val codexWindowKindKey = stringPreferencesKey("qw_codex_window_kind")
     val codexUsageDisplayModeKey = stringPreferencesKey("qw_codex_usage_display")
     val codexUsageProgressStyleKey = stringPreferencesKey("qw_codex_usage_progress_style")
-    val freeModelsKey = stringPreferencesKey("qw_free_models")
-    val freeModelsUpdatedAtKey = longPreferencesKey("qw_free_models_updated_at")
+    val freeModelsKey = stringPreferencesKey("qw_free_models_v3")
+    val freeModelsIdsKey = stringPreferencesKey("qw_free_models_ids_v3")
+    val freeModelsUpdatedAtKey = longPreferencesKey("qw_free_models_updated_at_v3")
     val zhipuWindowKindKey = stringPreferencesKey("qw_zhipu_window_kind")
     val zhipuUsageDisplayModeKey = stringPreferencesKey("qw_zhipu_usage_display")
     val zhipuUsageProgressStyleKey = stringPreferencesKey("qw_zhipu_usage_progress_style")
@@ -232,7 +234,8 @@ object WidgetGlanceState {
                         newApiSubscriptionSettings.usageProgressStyle.name
                     writeNewApiAdminStats(newApiAdminStats)
                     if (freeModels.models.isNotEmpty()) {
-                        this[freeModelsKey] = freeModels.models.joinToString("\n")
+                        this[freeModelsKey] = freeModels.models.joinToString("\n") { it.name }
+                        this[freeModelsIdsKey] = freeModels.models.joinToString("\n") { it.modelId }
                     }
                     this[freeModelsUpdatedAtKey] = freeModels.updatedAtEpochMs
                     this[combinedStringKey(PlatformIds.FREE_MODELS, "refresh_phase")] =
@@ -321,12 +324,25 @@ object WidgetGlanceState {
     fun Preferences.toCombinedRefreshPhase(platformId: String): RefreshIconPhase =
         RefreshIconPhase.fromStorage(this[combinedStringKey(platformId, "refresh_phase")])
 
-    fun Preferences.toFreeModels(): List<String> =
-        this[freeModelsKey]
+    /**
+     * Free models as display name + callable model id. Both lists are stored
+     * newline-separated and index-aligned.
+     */
+    fun Preferences.toFreeModels(): List<FreeModelEntry> {
+        val names = this[freeModelsKey]
             ?.split('\n')
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
             .orEmpty()
+        if (names.isEmpty()) return emptyList()
+        val ids = this[freeModelsIdsKey]
+            ?.split('\n')
+            ?.map { it.trim() }
+            .orEmpty()
+        return names.mapIndexed { index, name ->
+            FreeModelEntry(name = name, modelId = ids.getOrNull(index).orEmpty())
+        }
+    }
 
     fun Preferences.toFreeModelsUpdatedAt(): Long =
         this[freeModelsUpdatedAtKey] ?: 0L
@@ -478,7 +494,7 @@ object WidgetGlanceState {
         zhipuSettings: ZhipuSettings? = null,
         newApiAdminStats: NewApiAdminStats? = null,
         newApiSubscriptionSettings: NewApiSubscriptionSettings? = null,
-        freeModels: List<String> = emptyList(),
+        freeModels: List<FreeModelEntry> = emptyList(),
     ) {
         this[refreshPhaseKey] = phase.name
         this[darkThemeModeKey] = appSettings.darkThemeMode.name
@@ -496,7 +512,8 @@ object WidgetGlanceState {
             this[codexUsageProgressStyleKey] = codexSettings.usageProgressStyle.name
         }
         if (freeModels.isNotEmpty()) {
-            this[freeModelsKey] = freeModels.joinToString("\n")
+            this[freeModelsKey] = freeModels.joinToString("\n") { it.name }
+            this[freeModelsIdsKey] = freeModels.joinToString("\n") { it.modelId }
         }
         if (zhipuSettings != null) {
             this[zhipuWindowKindKey] = zhipuSettings.widgetWindowKind.name

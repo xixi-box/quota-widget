@@ -16,7 +16,9 @@ import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.LocalSize
 import androidx.glance.action.Action
+import androidx.glance.action.actionParametersOf
 import androidx.glance.action.actionStartActivity
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
@@ -113,12 +115,18 @@ private data class CombinedWindowBar(
     val displayMode: UsageDisplayMode,
 )
 
+private data class CombinedDetail(
+    val text: String,
+    /** When set, tapping the line copies this text (free-model ids). */
+    val copyText: String? = null,
+)
+
 private data class CombinedRow(
     val platformId: String,
     val name: String,
     val value: String,
     val secondaryValue: String? = null,
-    val detailValues: List<String> = emptyList(),
+    val detailValues: List<CombinedDetail> = emptyList(),
     val windows: List<CombinedWindowBar> = emptyList(),
     val usageProgressStyle: UsageProgressStyle = UsageProgressStyle.BAR,
     val refreshPhase: RefreshIconPhase = RefreshIconPhase.Idle,
@@ -192,14 +200,18 @@ private fun Preferences.toCombinedRows(context: Context): List<CombinedRow> =
                     },
                     detailValues = stats?.let {
                         listOf(
-                            context.getString(
-                                R.string.widget_combined_admin_requests_rpm,
-                                formatRequestCount(it.requestsDay),
-                                formatNewApiAdminRate(it.averageRpmDay()),
+                            CombinedDetail(
+                                context.getString(
+                                    R.string.widget_combined_admin_requests_rpm,
+                                    formatRequestCount(it.requestsDay),
+                                    formatNewApiAdminRate(it.averageRpmDay()),
+                                ),
                             ),
-                            context.getString(
-                                R.string.widget_combined_admin_tpm,
-                                formatNewApiAdminRate(it.averageTpmDay()),
+                            CombinedDetail(
+                                context.getString(
+                                    R.string.widget_combined_admin_tpm,
+                                    formatNewApiAdminRate(it.averageTpmDay()),
+                                ),
                             ),
                         )
                     }.orEmpty(),
@@ -242,7 +254,12 @@ private fun Preferences.freeModelsRow(
         platformId = PlatformIds.FREE_MODELS,
         name = context.getString(R.string.opencode_free_models_title),
         value = context.getString(R.string.widget_combined_free_count, models.size),
-        detailValues = models,
+        detailValues = models.map { entry ->
+            CombinedDetail(
+                text = entry.modelId.ifBlank { entry.name },
+                copyText = entry.copyText,
+            )
+        },
         refreshPhase = toCombinedRefreshPhase(PlatformIds.FREE_MODELS),
         updatedAtEpochMs = toFreeModelsUpdatedAt(),
     )
@@ -549,7 +566,11 @@ private fun CombinedPlatformCard(
                     }
                     row.detailValues.forEach { detail ->
                         Spacer(modifier = GlanceModifier.height(dimensions.cardTextGap))
-                        CombinedPlatformDetail(detail, dimensions)
+                        CombinedPlatformDetail(
+                            detail = detail,
+                            dimensions = dimensions,
+                            platformId = row.platformId,
+                        )
                     }
                 }
             }
@@ -746,16 +767,30 @@ private fun CombinedPlatformValue(
 
 @Composable
 private fun CombinedPlatformDetail(
-    value: String,
+    detail: CombinedDetail,
     dimensions: CombinedDimensions,
+    platformId: String,
 ) {
+    val copyAction = detail.copyText?.let { copyText ->
+        actionRunCallback<CopyTextAction>(
+            parameters = actionParametersOf(
+                CopyTextAction.TEXT_KEY to copyText,
+                CopyTextAction.LABEL_KEY to platformId,
+            ),
+        )
+    }
     Text(
-        text = value,
+        text = detail.text,
         style = TextStyle(
             color = GlanceTheme.colors.onSurfaceVariant,
             fontSize = dimensions.nameSize,
         ),
         maxLines = if (dimensions.verticalScale > 1.01f) 2 else 1,
+        modifier = if (copyAction != null) {
+            GlanceModifier.clickableNoRipple(copyAction)
+        } else {
+            GlanceModifier
+        },
     )
 }
 
